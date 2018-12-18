@@ -1,12 +1,14 @@
 package operator2
 
 import (
+	"github.com/golang/glog"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	appsv1 "k8s.io/client-go/kubernetes/typed/apps/v1"
 	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 
+	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
-	"github.com/openshift/api/osin/v1"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
 	osinv1alpha1 "github.com/openshift/cluster-osin-operator/pkg/apis/osin/v1alpha1"
 	"github.com/openshift/cluster-osin-operator/pkg/boilerplate/operator"
@@ -17,7 +19,8 @@ import (
 )
 
 const (
-	targetName = "openshift-osin"
+	targetName  = "openshift-osin"
+	metadataKey = "metadata"
 )
 
 type osinOperator struct {
@@ -76,6 +79,14 @@ func (c *osinOperator) handleSync(configOverrides []byte) error {
 		return err
 	}
 
+	metadataConfigMap, _, err := resourceapply.ApplyConfigMap(c.configMaps, c.recorder, getMetadataConfigMap(route))
+	if err != nil {
+		return err
+	}
+
+	// TODO updates top level auth config status
+	_ = configv1.AuthenticationStatus{}
+
 	service, _, err := resourceapply.ApplyService(c.services, c.recorder, defaultService())
 	if err != nil {
 		return err
@@ -87,17 +98,11 @@ func (c *osinOperator) handleSync(configOverrides []byte) error {
 		return err
 	}
 
-	// get / create default top level oauth config
-
-	// convert it to osin's cli config
-
-	// overlay configOverrides
-
-	// write config map with full config bytes
-
-	oauthConfig := &v1.OAuthConfig{}
-
-	configMap, _, err := resourceapply.ApplyConfigMap(c.configMaps, c.recorder, nil)
+	expectedOAuthConfigMap, err := c.handleOAuthConfig(configOverrides)
+	if err != nil {
+		return err
+	}
+	configMap, _, err := resourceapply.ApplyConfigMap(c.configMaps, c.recorder, expectedOAuthConfigMap)
 	if err != nil {
 		return err
 	}
@@ -105,11 +110,19 @@ func (c *osinOperator) handleSync(configOverrides []byte) error {
 	// deployment, have RV of all resources
 	// TODO use ExpectedDeploymentGeneration func
 	// TODO probably do not need every RV
-	expectedDeployment := defaultDeployment(route.ResourceVersion, service.ResourceVersion, secret.ResourceVersion, configMap.ResourceVersion)
+	expectedDeployment := defaultDeployment(
+		route.ResourceVersion,
+		metadataConfigMap.ResourceVersion,
+		service.ResourceVersion,
+		secret.ResourceVersion,
+		configMap.ResourceVersion,
+	)
 	deployment, _, err := resourceapply.ApplyDeployment(c.deployments, c.recorder, expectedDeployment, c.getGeneration(), false)
 	if err != nil {
 		return err
 	}
+
+	glog.V(4).Infof("current deployment: %#v", deployment)
 
 	return nil
 }
@@ -124,6 +137,7 @@ func defaultMeta() metav1.ObjectMeta {
 	return metav1.ObjectMeta{
 		Name:            targetName,
 		Namespace:       targetName,
+		Labels:          defaultLabels(),
 		OwnerReferences: nil, // TODO
 	}
 }

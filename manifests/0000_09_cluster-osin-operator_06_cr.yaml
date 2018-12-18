@@ -1,7 +1,0 @@
-apiVersion: osin.openshift.io/v1alpha1
-kind: Osin
-metadata:
-  name: openshift-osin
-  namespace: openshift-osin
-spec:
-  managementState: Managed

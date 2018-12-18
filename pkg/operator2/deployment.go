@@ -5,7 +5,11 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
+
+	"github.com/openshift/library-go/pkg/operator/v1alpha1helpers"
 )
 
 func (c *osinOperator) getGeneration() int64 {
@@ -17,21 +21,23 @@ func (c *osinOperator) getGeneration() int64 {
 }
 
 func defaultDeployment(resourceVersions ...string) *appsv1.Deployment {
-	labels := defaultLabels()
 	replicas := int32(3) // TODO configurable?
 	gracePeriod := int64(30)
+
+	secretVolume := targetName + "-secret"
+	configMapVolume := targetName + "-configmap"
 
 	deployment := &appsv1.Deployment{
 		ObjectMeta: defaultMeta(),
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &replicas,
 			Selector: &metav1.LabelSelector{
-				MatchLabels: labels,
+				MatchLabels: defaultLabels(),
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:   targetName,
-					Labels: labels,
+					Labels: defaultLabels(),
 					Annotations: map[string]string{
 						"osin.openshift.io/rv": strings.Join(resourceVersions, ","),
 					},
@@ -69,12 +75,91 @@ func defaultDeployment(resourceVersions ...string) *appsv1.Deployment {
 					TerminationGracePeriodSeconds: &gracePeriod,
 					SecurityContext:               &corev1.PodSecurityContext{},
 					Containers: []corev1.Container{
-						consoleContainer(cr),
+						{
+							Image:           v1alpha1helpers.GetImageEnv(),
+							ImagePullPolicy: corev1.PullPolicy("IfNotPresent"),
+							Name:            targetName,
+							Command: []string{
+								"hypershift",
+								"openshift-osinserver",
+								"--config=/var/config/config.yaml",
+							},
+							Ports: []corev1.ContainerPort{
+								{
+									Name:          "https",
+									Protocol:      corev1.ProtocolTCP,
+									ContainerPort: 443,
+								},
+							},
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      secretVolume,
+									ReadOnly:  true,
+									MountPath: "/var/session",
+								},
+								{
+									Name:      configMapVolume,
+									ReadOnly:  true,
+									MountPath: "/var/config",
+								},
+							},
+							ReadinessProbe:           defaultProbe(),
+							LivenessProbe:            livenessProbe(),
+							TerminationMessagePath:   "/dev/termination-log",
+							TerminationMessagePolicy: corev1.TerminationMessagePolicy("File"),
+							Resources: corev1.ResourceRequirements{
+								Requests: map[corev1.ResourceName]resource.Quantity{
+									corev1.ResourceCPU:    resource.MustParse("2G"),
+									corev1.ResourceMemory: resource.MustParse("2G"),
+								},
+							},
+						},
 					},
-					Volumes: consoleVolumes(volumeConfigList),
+					Volumes: []corev1.Volume{
+						{
+							Name: secretVolume,
+							VolumeSource: corev1.VolumeSource{
+								Secret: &corev1.SecretVolumeSource{
+									SecretName: targetName,
+								},
+							},
+						},
+						{
+							Name: configMapVolume,
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: targetName,
+									},
+								},
+							},
+						},
+					},
 				},
 			},
 		},
 	}
 	return deployment
+}
+
+func defaultProbe() *corev1.Probe {
+	return &corev1.Probe{
+		Handler: corev1.Handler{
+			HTTPGet: &corev1.HTTPGetAction{
+				Path:   "/health",
+				Port:   intstr.FromInt(8443),
+				Scheme: corev1.URIScheme("HTTPS"),
+			},
+		},
+		TimeoutSeconds:   1,
+		PeriodSeconds:    10,
+		SuccessThreshold: 1,
+		FailureThreshold: 3,
+	}
+}
+
+func livenessProbe() *corev1.Probe {
+	probe := defaultProbe()
+	probe.InitialDelaySeconds = 30
+	return probe
 }

@@ -6,19 +6,39 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/informers/internalinterfaces"
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/openshift/cluster-osin-operator/pkg/apis/osin/v1alpha1"
 	"github.com/openshift/cluster-osin-operator/pkg/generated/clientset/versioned"
 	"github.com/openshift/cluster-osin-operator/pkg/generated/informers/externalversions"
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
+	"github.com/openshift/library-go/pkg/operator/v1helpers"
 )
 
-const resync = 20 * time.Minute
+const (
+	resync = 20 * time.Minute
+
+	osinResource = `
+apiVersion: osin.openshift.io/v1alpha1
+kind: Osin
+metadata:
+  name: openshift-osin
+  namespace: openshift-osin
+spec:
+  managementState: Managed
+`
+)
 
 func RunOperator(ctx *controllercmd.ControllerContext) error {
 	kubeClient, err := kubernetes.NewForConfig(ctx.KubeConfig)
+	if err != nil {
+		return err
+	}
+
+	dynamicClient, err := dynamic.NewForConfig(ctx.KubeConfig)
 	if err != nil {
 		return err
 	}
@@ -36,6 +56,12 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 	osinInformersNamespaced := externalversions.NewSharedInformerFactoryWithOptions(osinClient, resync,
 		externalversions.WithNamespace(targetName),
 		externalversions.WithTweakListOptions(singleNameListOptions(targetName)),
+	)
+
+	v1helpers.EnsureOperatorConfigExists(
+		dynamicClient,
+		[]byte(osinResource),
+		v1alpha1.GroupVersion.WithResource("osins"),
 	)
 
 	// TODO use kube informers/clients
