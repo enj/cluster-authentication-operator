@@ -1,6 +1,7 @@
 package operator2
 
 import (
+	"fmt"
 	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -26,6 +27,8 @@ func defaultDeployment(resourceVersions ...string) *appsv1.Deployment {
 
 	secretVolume := targetName + "-secret"
 	configMapVolume := targetName + "-configmap"
+
+	configPath := "/var/config"
 
 	deployment := &appsv1.Deployment{
 		ObjectMeta: defaultMeta(),
@@ -82,7 +85,7 @@ func defaultDeployment(resourceVersions ...string) *appsv1.Deployment {
 							Command: []string{
 								"hypershift",
 								"openshift-osinserver",
-								"--config=/var/config/config.yaml",
+								fmt.Sprintf("--config=%s/%s", configPath, configKey),
 							},
 							Ports: []corev1.ContainerPort{
 								{
@@ -95,12 +98,12 @@ func defaultDeployment(resourceVersions ...string) *appsv1.Deployment {
 								{
 									Name:      secretVolume,
 									ReadOnly:  true,
-									MountPath: "/var/session",
+									MountPath: sessionPath,
 								},
 								{
 									Name:      configMapVolume,
 									ReadOnly:  true,
-									MountPath: "/var/config",
+									MountPath: configPath,
 								},
 							},
 							ReadinessProbe:           defaultProbe(),

@@ -31,7 +31,7 @@ func randomSessionSecret() *v1.Secret {
 	return &v1.Secret{
 		ObjectMeta: defaultMeta(),
 		Data: map[string][]byte{
-			"secrets": newSessionSecretsJSON(),
+			sessionKey: newSessionSecretsJSON(),
 		},
 	}
 }

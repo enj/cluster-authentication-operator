@@ -8,12 +8,15 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers"
-	"k8s.io/client-go/informers/internalinterfaces"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/openshift/cluster-osin-operator/pkg/apis/osin/v1alpha1"
-	"github.com/openshift/cluster-osin-operator/pkg/generated/clientset/versioned"
-	"github.com/openshift/cluster-osin-operator/pkg/generated/informers/externalversions"
+	configclient "github.com/openshift/client-go/config/clientset/versioned"
+	configinformer "github.com/openshift/client-go/config/informers/externalversions"
+	routeclient "github.com/openshift/client-go/route/clientset/versioned"
+	routeinformer "github.com/openshift/client-go/route/informers/externalversions"
+	osinv1alpha1 "github.com/openshift/cluster-osin-operator/pkg/apis/osin/v1alpha1"
+	osinclient "github.com/openshift/cluster-osin-operator/pkg/generated/clientset/versioned"
+	osininformer "github.com/openshift/cluster-osin-operator/pkg/generated/informers/externalversions"
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 )
@@ -43,7 +46,17 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		return err
 	}
 
-	osinClient, err := versioned.NewForConfig(ctx.KubeConfig)
+	osinClient, err := osinclient.NewForConfig(ctx.KubeConfig)
+	if err != nil {
+		return err
+	}
+
+	routeClient, err := routeclient.NewForConfig(ctx.KubeConfig)
+	if err != nil {
+		return err
+	}
+
+	configClient, err := configclient.NewForConfig(ctx.KubeConfig)
 	if err != nil {
 		return err
 	}
@@ -53,26 +66,48 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		informers.WithTweakListOptions(singleNameListOptions(targetName)),
 	)
 
-	osinInformersNamespaced := externalversions.NewSharedInformerFactoryWithOptions(osinClient, resync,
-		externalversions.WithNamespace(targetName),
-		externalversions.WithTweakListOptions(singleNameListOptions(targetName)),
+	osinInformersNamespaced := osininformer.NewSharedInformerFactoryWithOptions(osinClient, resync,
+		osininformer.WithNamespace(targetName),
+		osininformer.WithTweakListOptions(singleNameListOptions(targetName)),
+	)
+
+	routeInformersNamespaced := routeinformer.NewSharedInformerFactoryWithOptions(routeClient, resync,
+		routeinformer.WithNamespace(targetName),
+		routeinformer.WithTweakListOptions(singleNameListOptions(targetName)),
+	)
+
+	configInformers := configinformer.NewSharedInformerFactoryWithOptions(configClient, resync,
+		configinformer.WithTweakListOptions(singleNameListOptions(configName)),
 	)
 
 	v1helpers.EnsureOperatorConfigExists(
 		dynamicClient,
 		[]byte(osinResource),
-		v1alpha1.GroupVersion.WithResource("osins"),
+		osinv1alpha1.GroupVersion.WithResource("osins"),
 	)
 
-	// TODO use kube informers/clients
 	operator := NewOsinOperator(
 		osinInformersNamespaced.Osin().V1alpha1().Osins(),
 		osinClient.OsinV1alpha1(),
+		kubeInformersNamespaced,
+		kubeClient,
+		routeInformersNamespaced.Route().V1().Routes(),
+		routeClient.RouteV1(),
+		configInformers,
+		configClient,
 		recorder{}, // TODO ctx.EventRecorder,
 	)
 
-	kubeInformersNamespaced.Start(ctx.StopCh)
-	osinInformersNamespaced.Start(ctx.StopCh)
+	for _, informer := range []interface {
+		Start(stopCh <-chan struct{})
+	}{
+		kubeInformersNamespaced,
+		osinInformersNamespaced,
+		routeInformersNamespaced,
+		configInformers,
+	} {
+		informer.Start(ctx.StopCh)
+	}
 
 	go operator.Run(ctx.StopCh)
 
@@ -81,7 +116,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 	return fmt.Errorf("stopped")
 }
 
-func singleNameListOptions(name string) internalinterfaces.TweakListOptionsFunc {
+func singleNameListOptions(name string) func(opts *v1.ListOptions) {
 	return func(opts *v1.ListOptions) {
 		opts.FieldSelector = fields.OneTermEqualSelector("metadata.name", name).String()
 	}

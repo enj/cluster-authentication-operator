@@ -6,7 +6,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	"github.com/openshift/api/osin/v1"
 	routev1 "github.com/openshift/api/route/v1"
 )
 
@@ -44,23 +43,11 @@ func getMetadata(route *routev1.Route) string {
 
 func getMetadataConfigMap(route *routev1.Route) *corev1.ConfigMap {
 	meta := defaultMeta()
-	meta.Namespace = "openshift-config"
+	meta.Namespace = configNamespace
 	return &corev1.ConfigMap{
 		ObjectMeta: meta,
 		Data: map[string]string{
 			metadataKey: getMetadata(route),
 		},
 	}
-}
-
-func (c *osinOperator) handleOAuthConfig(configOverrides []byte) (*corev1.ConfigMap, error) {
-	// get top level oauth config
-
-	// convert it to osin's cli config
-
-	// overlay configOverrides
-
-	// write config map with full config bytes
-
-	oauthConfig := &v1.OAuthConfig{}
 }
