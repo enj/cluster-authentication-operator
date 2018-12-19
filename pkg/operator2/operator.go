@@ -89,7 +89,10 @@ func NewOsinOperator(
 		operator.WithInformer(routeInformer, osinNameFilter),
 		operator.WithInformer(coreInformers.Services(), osinNameFilter),
 		operator.WithInformer(coreInformers.Secrets(), osinNameFilter),
-		operator.WithInformer(coreInformers.ConfigMaps(), osinNameFilter), // TODO need to watch config map in configNamespace
+		// TODO need to watch config map in configNamespace
+		// TODO also need to watch all secret and configmaps that may get mounted into deployment,
+		// so we may need to all config maps and secrets in the openshift-config namespace
+		operator.WithInformer(coreInformers.ConfigMaps(), osinNameFilter),
 		operator.WithInformer(kubeInformersNamespaced.Apps().V1().Deployments(), osinNameFilter),
 		operator.WithInformer(configV1Informers.Authentications(), configNameFilter),
 		operator.WithInformer(configV1Informers.OAuths(), configNameFilter),

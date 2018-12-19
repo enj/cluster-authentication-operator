@@ -12,8 +12,15 @@ func (c *osinOperator) handleAuthConfig() (*configv1.Authentication, error) {
 		return nil, err
 	}
 
-	// TODO updates top level auth config status
-	_ = auth.Status
+	expectedReference := configv1.ConfigMapReference{
+		Name: targetName,
+		Key:  metadataKey,
+	}
 
-	return auth, nil
+	if auth.Status.OAuthMetadata == expectedReference {
+		return auth, nil
+	}
+
+	auth.Status.OAuthMetadata = expectedReference
+	return c.authentication.UpdateStatus(auth)
 }
