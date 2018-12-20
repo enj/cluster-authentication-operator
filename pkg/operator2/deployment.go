@@ -1,6 +1,8 @@
 package operator2
 
 import (
+	"crypto/sha512"
+	"encoding/base64"
 	"fmt"
 	"strings"
 
@@ -30,6 +32,12 @@ func defaultDeployment(resourceVersions ...string) *appsv1.Deployment {
 
 	configPath := "/var/config"
 
+	// force redeploy when any associated resource changes
+	// we use a hash to prevent this value from growing indefinitely
+	rvs := strings.Join(resourceVersions, ",")
+	rvsHash := sha512.Sum512([]byte(rvs))
+	rvsHashStr := base64.RawURLEncoding.EncodeToString(rvsHash[:])
+
 	deployment := &appsv1.Deployment{
 		ObjectMeta: defaultMeta(),
 		Spec: appsv1.DeploymentSpec{
@@ -42,7 +50,7 @@ func defaultDeployment(resourceVersions ...string) *appsv1.Deployment {
 					Name:   targetName,
 					Labels: defaultLabels(),
 					Annotations: map[string]string{
-						"osin.openshift.io/rv": strings.Join(resourceVersions, ","),
+						"osin.openshift.io/rvs-hash": rvsHashStr,
 					},
 				},
 				Spec: corev1.PodSpec{
