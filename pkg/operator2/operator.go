@@ -21,20 +21,22 @@ import (
 	authopinformer "github.com/openshift/cluster-osin-operator/pkg/generated/informers/externalversions/authentication/v1alpha1"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
+	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 )
 
 const (
-	targetName = "openshift-osin"
+	targetName = "openshift-osin" // TODO fix
 
-	metadataKey = "metadata"
-	configKey   = "config.yaml"
-	sessionKey  = "session"
-	sessionPath = "/var/session"
+	configKey  = "config.yaml"
+	sessionKey = "session"
 
-	configName      = "cluster"
-	configNamespace = "openshift-managed-config"
+	systemConfigPath = "/var/config/system"
+	sessionPath      = systemConfigPath + "/" + sessionKey
 
-	authOperatorConfigResourceName = "cluster"
+	globalConfigName = "cluster"
+
+	machineConfigNamespace = "openshift-config-managed"
+	userConfigNamespace    = "openshift-config"
 )
 
 type authOperator struct {
@@ -51,6 +53,8 @@ type authOperator struct {
 
 	authentication configv1client.AuthenticationInterface
 	oauth          configv1client.OAuthInterface
+
+	resourceSyncer resourcesynccontroller.ResourceSyncer
 }
 
 func NewAuthenticationOperator(
@@ -63,6 +67,7 @@ func NewAuthenticationOperator(
 	configInformers configinformer.SharedInformerFactory,
 	configClient configclient.Interface,
 	recorder events.Recorder,
+	resourceSyncer resourcesynccontroller.ResourceSyncer,
 ) operator.Runner {
 	c := &authOperator{
 		authOperatorConfig: authOpConfigClient.AuthenticationOperatorConfigs(),
@@ -78,14 +83,16 @@ func NewAuthenticationOperator(
 
 		authentication: configClient.ConfigV1().Authentications(),
 		oauth:          configClient.ConfigV1().OAuths(),
+
+		resourceSyncer: resourceSyncer,
 	}
 
 	coreInformers := kubeInformersNamespaced.Core().V1()
 	configV1Informers := configInformers.Config().V1()
 
-	authOpConfigNameFilter := operator.FilterByNames(authOperatorConfigResourceName)
+	authOpConfigNameFilter := operator.FilterByNames(globalConfigName)
 	osinNameFilter := operator.FilterByNames(targetName)
-	configNameFilter := operator.FilterByNames(configName)
+	configNameFilter := operator.FilterByNames(globalConfigName)
 
 	return operator.New("AuthenticationOperator2", c,
 		operator.WithInformer(authOpConfigInformer, authOpConfigNameFilter),
@@ -103,7 +110,7 @@ func NewAuthenticationOperator(
 }
 
 func (c *authOperator) Key() (metav1.Object, error) {
-	return c.authOperatorConfig.Get(authOperatorConfigResourceName, metav1.GetOptions{})
+	return c.authOperatorConfig.Get(globalConfigName, metav1.GetOptions{})
 }
 
 func (c *authOperator) Sync(obj metav1.Object) error {
@@ -152,7 +159,7 @@ func (c *authOperator) handleSync(configOverrides []byte) error {
 		return err
 	}
 
-	expectedOAuthConfigMap, err := c.handleOAuthConfig(configOverrides)
+	expectedOAuthConfigMap, syncData, err := c.handleOAuthConfig(configOverrides)
 	if err != nil {
 		return err
 	}
@@ -165,6 +172,7 @@ func (c *authOperator) handleSync(configOverrides []byte) error {
 	// TODO use ExpectedDeploymentGeneration func
 	// TODO probably do not need every RV
 	expectedDeployment := defaultDeployment(
+		syncData,
 		route.ResourceVersion,
 		metadataConfigMap.ResourceVersion,
 		auth.ResourceVersion,
