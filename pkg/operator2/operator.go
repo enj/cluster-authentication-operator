@@ -21,6 +21,7 @@ import (
 	osininformer "github.com/openshift/cluster-osin-operator/pkg/generated/informers/externalversions/osin/v1alpha1"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
+	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 )
 
 const (
@@ -31,8 +32,9 @@ const (
 	sessionKey  = "session"
 	sessionPath = "/var/session"
 
-	configName      = "cluster"
-	configNamespace = "openshift-managed-config"
+	configName          = "cluster"
+	configNamespace     = "openshift-managed-config"
+	userConfigNamespace = "openshift-config"
 )
 
 type osinOperator struct {
@@ -49,6 +51,8 @@ type osinOperator struct {
 
 	authentication configv1client.AuthenticationInterface
 	oauth          configv1client.OAuthInterface
+
+	resourceSyncer resourcesynccontroller.ResourceSyncer
 }
 
 func NewOsinOperator(
@@ -61,6 +65,7 @@ func NewOsinOperator(
 	configInformers configinformer.SharedInformerFactory,
 	configClient configclient.Interface,
 	recorder events.Recorder,
+	resourceSyncer resourcesynccontroller.ResourceSyncer,
 ) operator.Runner {
 	c := &osinOperator{
 		osin: osinsClient.Osins(targetName),
@@ -76,6 +81,8 @@ func NewOsinOperator(
 
 		authentication: configClient.ConfigV1().Authentications(),
 		oauth:          configClient.ConfigV1().OAuths(),
+
+		resourceSyncer: resourceSyncer,
 	}
 
 	coreInformers := kubeInformersNamespaced.Core().V1()

@@ -18,6 +18,7 @@ import (
 	osinclient "github.com/openshift/cluster-osin-operator/pkg/generated/clientset/versioned"
 	osininformer "github.com/openshift/cluster-osin-operator/pkg/generated/informers/externalversions"
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
+	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 )
 
@@ -86,6 +87,13 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		osinv1alpha1.GroupVersion.WithResource("osins"),
 	)
 
+	resourceSyncer := resourcesynccontroller.NewResourceSyncController(
+		nil, // TODO fix
+		nil, // TODO fix
+		kubeClient,
+		recorder{}, // TODO ctx.EventRecorder,
+	)
+
 	operator := NewOsinOperator(
 		osinInformersNamespaced.Osin().V1alpha1().Osins(),
 		osinClient.OsinV1alpha1(),
@@ -96,6 +104,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		configInformers,
 		configClient,
 		recorder{}, // TODO ctx.EventRecorder,
+		resourceSyncer,
 	)
 
 	for _, informer := range []interface {
@@ -110,6 +119,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 	}
 
 	go operator.Run(ctx.StopCh)
+	go resourceSyncer.Run(1, ctx.StopCh)
 
 	<-ctx.StopCh
 

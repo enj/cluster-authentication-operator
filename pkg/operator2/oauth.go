@@ -23,6 +23,12 @@ func (c *osinOperator) handleOAuthConfig(configOverrides []byte) (*corev1.Config
 		return nil, err
 	}
 
+	syncData, err := c.handleConfigSync(oauthConfig)
+	if err != nil {
+		return nil, err
+	}
+	_ = syncData // TODO use this with deployment mounts
+
 	var accessTokenInactivityTimeoutSeconds *int32
 	timeout := oauthConfig.Spec.TokenConfig.AccessTokenInactivityTimeoutSeconds
 	switch {
