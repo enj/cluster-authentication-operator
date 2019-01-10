@@ -18,10 +18,64 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 )
 
-func (c *authOperator) handleOAuthConfig(route *routev1.Route, configOverrides []byte) (*corev1.ConfigMap, error) {
-	oauthConfig, err := c.oauth.Get(configName, metav1.GetOptions{})
+func (c *authOperator) handleOAuthConfig(route *routev1.Route, cconfigOverrides []byte) (*corev1.ConfigMap, []idpSyncData, error) {
+	oauthConfig, err := c.oauth.Get(globalConfigName, metav1.GetOptions{})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+
+	// TODO remove this hack
+	// pretend we have this one instead of the real input for now
+	// this has the bits we need to care about
+	oauthConfig.Spec.IdentityProviders = []configv1.IdentityProvider{
+		{
+			Name:            "happy",
+			UseAsChallenger: true,
+			UseAsLogin:      true,
+			MappingMethod:   configv1.MappingMethodClaim,
+			ProviderConfig: configv1.IdentityProviderConfig{
+				Type: configv1.IdentityProviderTypeHTPasswd,
+				HTPasswd: &configv1.HTPasswdIdentityProvider{
+					FileData: configv1.SecretNameReference{
+						Name: "fancy",
+					},
+				},
+			},
+		},
+		{
+			Name:            "new",
+			UseAsChallenger: true,
+			UseAsLogin:      true,
+			MappingMethod:   configv1.MappingMethodClaim,
+			ProviderConfig: configv1.IdentityProviderConfig{
+				Type: configv1.IdentityProviderTypeOpenID,
+				OpenID: &configv1.OpenIDIdentityProvider{
+					ClientID: "panda",
+					ClientSecret: configv1.SecretNameReference{
+						Name: "fancy",
+					},
+					CA: configv1.ConfigMapNameReference{
+						Name: "mah-ca",
+					},
+					URLs: configv1.OpenIDURLs{
+						Authorize: "https://example.com/a",
+						Token:     "https://example.com/b",
+						UserInfo:  "https://example.com/c",
+					},
+					Claims: configv1.OpenIDClaims{
+						PreferredUsername: []string{"preferred_username"},
+						Name:              []string{"name"},
+						Email:             []string{"email"},
+					},
+				},
+			},
+		},
+	}
+
+	// TODO maybe move the OAuth stuff up one level
+	syncData, err := c.handleConfigSync(oauthConfig)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	var accessTokenInactivityTimeoutSeconds *int32
@@ -40,15 +94,15 @@ func (c *authOperator) handleOAuthConfig(route *routev1.Route, configOverrides [
 	emptyTemplates := configv1.OAuthTemplates{}
 	if oauthConfig.Spec.Templates != emptyTemplates {
 		templates = &osinv1.OAuthTemplates{
-			Login:             getFilenameFromSecretNameRef(oauthConfig.Spec.Templates.Login),
-			ProviderSelection: getFilenameFromSecretNameRef(oauthConfig.Spec.Templates.ProviderSelection),
-			Error:             getFilenameFromSecretNameRef(oauthConfig.Spec.Templates.Error),
+			Login:             "", // TODO fix
+			ProviderSelection: "", // TODO fix
+			Error:             "", // TODO fix
 		}
 	}
 
 	identityProviders := make([]osinv1.IdentityProvider, 0, len(oauthConfig.Spec.IdentityProviders))
-	for _, idp := range oauthConfig.Spec.IdentityProviders {
-		providerConfigBytes, err := convertProviderConfigToOsinBytes(&idp.ProviderConfig)
+	for i, idp := range oauthConfig.Spec.IdentityProviders {
+		providerConfigBytes, err := convertProviderConfigToOsinBytes(&idp.ProviderConfig, syncData, i)
 		if err != nil {
 			glog.Error(err)
 			continue
@@ -134,12 +188,12 @@ func (c *authOperator) handleOAuthConfig(route *routev1.Route, configOverrides [
 
 	cliConfigBytes, err := json.Marshal(cliConfig)
 	if err != nil {
-		return nil, err
+		panic(err) // nothing in our config can fail to decode unless our scheme is broken, die
 	}
 
 	completeConfigBytes, err := resourcemerge.MergeProcessConfig(nil, cliConfigBytes, configOverrides)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	return &corev1.ConfigMap{
@@ -147,5 +201,5 @@ func (c *authOperator) handleOAuthConfig(route *routev1.Route, configOverrides [
 		Data: map[string]string{
 			configKey: string(completeConfigBytes),
 		},
-	}, nil
+	}, syncData, nil
 }
