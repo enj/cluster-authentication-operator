@@ -15,17 +15,17 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 )
 
-func (c *osinOperator) handleOAuthConfig(configOverrides []byte) (*corev1.ConfigMap, error) {
+func (c *osinOperator) handleOAuthConfig(configOverrides []byte) (*corev1.ConfigMap, []idpSyncData, error) {
 	oauthConfig, err := c.oauth.Get(configName, metav1.GetOptions{})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
+	// TODO maybe move the OAuth stuff up one level
 	syncData, err := c.handleConfigSync(oauthConfig)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	_ = syncData // TODO use this with deployment mounts
 
 	var accessTokenInactivityTimeoutSeconds *int32
 	timeout := oauthConfig.Spec.TokenConfig.AccessTokenInactivityTimeoutSeconds
@@ -127,12 +127,12 @@ func (c *osinOperator) handleOAuthConfig(configOverrides []byte) (*corev1.Config
 
 	cliConfigBytes, err := json.Marshal(cliConfig)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	completeConfigBytes, err := resourcemerge.MergeProcessConfig(nil, cliConfigBytes, configOverrides)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	return &corev1.ConfigMap{
@@ -140,5 +140,5 @@ func (c *osinOperator) handleOAuthConfig(configOverrides []byte) (*corev1.Config
 		Data: map[string]string{
 			configKey: string(completeConfigBytes),
 		},
-	}, nil
+	}, syncData, nil
 }

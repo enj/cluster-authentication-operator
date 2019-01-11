@@ -152,7 +152,7 @@ func (c *osinOperator) handleSync(configOverrides []byte) error {
 		return err
 	}
 
-	expectedOAuthConfigMap, err := c.handleOAuthConfig(configOverrides)
+	expectedOAuthConfigMap, syncData, err := c.handleOAuthConfig(configOverrides)
 	if err != nil {
 		return err
 	}
@@ -165,6 +165,7 @@ func (c *osinOperator) handleSync(configOverrides []byte) error {
 	// TODO use ExpectedDeploymentGeneration func
 	// TODO probably do not need every RV
 	expectedDeployment := defaultDeployment(
+		syncData,
 		route.ResourceVersion,
 		metadataConfigMap.ResourceVersion,
 		auth.ResourceVersion,
