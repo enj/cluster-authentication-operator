@@ -23,6 +23,54 @@ func (c *osinOperator) handleOAuthConfig(configOverrides []byte) (*corev1.Config
 		return nil, nil, err
 	}
 
+	// TODO remove this hack
+	// pretend we have this one instead of the real input for now
+	// this has the bits we need to care about
+	oauthConfig.Spec.IdentityProviders = []configv1.IdentityProvider{
+		{
+			Name:            "happy",
+			UseAsChallenger: true,
+			UseAsLogin:      true,
+			MappingMethod:   configv1.MappingMethodClaim,
+			ProviderConfig: configv1.IdentityProviderConfig{
+				Type: configv1.IdentityProviderTypeHTPasswd,
+				HTPasswd: &configv1.HTPasswdIdentityProvider{
+					FileData: configv1.SecretNameReference{
+						Name: "fancy",
+					},
+				},
+			},
+		},
+		{
+			Name:            "new",
+			UseAsChallenger: true,
+			UseAsLogin:      true,
+			MappingMethod:   configv1.MappingMethodClaim,
+			ProviderConfig: configv1.IdentityProviderConfig{
+				Type: configv1.IdentityProviderTypeOpenID,
+				OpenID: &configv1.OpenIDIdentityProvider{
+					ClientID: "panda",
+					ClientSecret: configv1.SecretNameReference{
+						Name: "fancy",
+					},
+					CA: configv1.ConfigMapNameReference{
+						Name: "mah-ca",
+					},
+					URLs: configv1.OpenIDURLs{
+						Authorize: "https://example.com/a",
+						Token:     "https://example.com/b",
+						UserInfo:  "https://example.com/c",
+					},
+					Claims: configv1.OpenIDClaims{
+						PreferredUsername: []string{"preferred_username"},
+						Name:              []string{"name"},
+						Email:             []string{"email"},
+					},
+				},
+			},
+		},
+	}
+
 	// TODO maybe move the OAuth stuff up one level
 	syncData, err := c.handleConfigSync(oauthConfig)
 	if err != nil {

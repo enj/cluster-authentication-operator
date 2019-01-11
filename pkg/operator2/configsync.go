@@ -12,41 +12,8 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
 )
 
-func (c *osinOperator) handleConfigSync(_ *configv1.OAuth) ([]idpSyncData, error) {
-	// pretend we have this one instead of the real input for now
-	// this has the bits we need to care about
-	config := &configv1.OAuth{
-		Spec: configv1.OAuthSpec{
-			IdentityProviders: []configv1.IdentityProvider{
-				{
-					Name: "happy",
-					ProviderConfig: configv1.IdentityProviderConfig{
-						Type: configv1.IdentityProviderTypeHTPasswd,
-						HTPasswd: &configv1.HTPasswdIdentityProvider{
-							FileData: configv1.SecretNameReference{
-								Name: "fancy",
-							},
-						},
-					},
-				},
-				{
-					Name: "new",
-					ProviderConfig: configv1.IdentityProviderConfig{
-						Type: configv1.IdentityProviderTypeOpenID,
-						OpenID: &configv1.OpenIDIdentityProvider{
-							ClientSecret: configv1.SecretNameReference{
-								Name: "fancy",
-							},
-							CA: configv1.ConfigMapNameReference{
-								Name: "mah-ca",
-							},
-						},
-					},
-				},
-			},
-			Templates: configv1.OAuthTemplates{}, // TODO fix
-		},
-	}
+func (c *osinOperator) handleConfigSync(config *configv1.OAuth) ([]idpSyncData, error) {
+	// TODO handle OAuthTemplates
 
 	// TODO we probably need listers
 	configMapClient := c.configMaps.ConfigMaps(userConfigNamespace)
