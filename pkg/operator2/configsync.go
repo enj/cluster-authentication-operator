@@ -119,10 +119,12 @@ type idpSyncData struct {
 
 type sourceData struct {
 	src    string
+	path   string
 	volume corev1.Volume
 	mount  corev1.VolumeMount
 }
 
+// TODO this should be combined with convertProviderConfigToOsinBytes as it would simplify how the data is shared
 func convertToData(idps []configv1.IdentityProvider) []idpSyncData {
 	out := make([]idpSyncData, 0, len(idps))
 	for i, idp := range idps {
@@ -133,13 +135,14 @@ func convertToData(idps []configv1.IdentityProvider) []idpSyncData {
 
 			fileData := p.FileData.Name
 			dest := getName(i, fileData, configv1.HTPasswdDataKey)
-			volume, mount := secretVolume(i, dest, configv1.HTPasswdDataKey)
+			volume, mount, path := secretVolume(i, dest, configv1.HTPasswdDataKey)
 
 			out = append(out,
 				idpSyncData{
 					secrets: map[string]sourceData{
 						dest: {
 							src:    fileData,
+							path:   path,
 							volume: volume,
 							mount:  mount,
 						},
@@ -151,17 +154,18 @@ func convertToData(idps []configv1.IdentityProvider) []idpSyncData {
 
 			ca := p.CA.Name
 			caDest := getName(i, ca, corev1.ServiceAccountRootCAKey)
-			caVolume, caMount := configMapVolume(i, caDest, corev1.ServiceAccountRootCAKey)
+			caVolume, caMount, caPath := configMapVolume(i, caDest, corev1.ServiceAccountRootCAKey)
 
 			clientSecret := p.ClientSecret.Name
 			clientSecretDest := getName(i, clientSecret, configv1.ClientSecretKey)
-			clientSecretVolume, clientSecretMount := secretVolume(i, clientSecretDest, configv1.ClientSecretKey)
+			clientSecretVolume, clientSecretMount, clientSecretPath := secretVolume(i, clientSecretDest, configv1.ClientSecretKey)
 
 			out = append(out,
 				idpSyncData{
 					configMaps: map[string]sourceData{
 						caDest: {
 							src:    ca,
+							path:   caPath,
 							volume: caVolume,
 							mount:  caMount,
 						},
@@ -169,6 +173,7 @@ func convertToData(idps []configv1.IdentityProvider) []idpSyncData {
 					secrets: map[string]sourceData{
 						clientSecretDest: {
 							src:    clientSecret,
+							path:   clientSecretPath,
 							volume: clientSecretVolume,
 							mount:  clientSecretMount,
 						},
@@ -217,7 +222,7 @@ func syncOrDie(syncFunc func(dest, src resourcesynccontroller.ResourceLocation) 
 	}
 }
 
-func secretVolume(i int, name, key string) (corev1.Volume, corev1.VolumeMount) {
+func secretVolume(i int, name, key string) (corev1.Volume, corev1.VolumeMount, string) {
 	volume := corev1.Volume{
 		Name: name,
 		VolumeSource: corev1.VolumeSource{
@@ -237,10 +242,10 @@ func secretVolume(i int, name, key string) (corev1.Volume, corev1.VolumeMount) {
 		ReadOnly:  true,
 		MountPath: getPath(i, "secret", name),
 	}
-	return volume, mount
+	return volume, mount, mount.MountPath + "/" + key
 }
 
-func configMapVolume(i int, name, key string) (corev1.Volume, corev1.VolumeMount) {
+func configMapVolume(i int, name, key string) (corev1.Volume, corev1.VolumeMount, string) {
 	volume := corev1.Volume{
 		Name: name,
 		VolumeSource: corev1.VolumeSource{
@@ -262,5 +267,5 @@ func configMapVolume(i int, name, key string) (corev1.Volume, corev1.VolumeMount
 		ReadOnly:  true,
 		MountPath: getPath(i, "configmap", name),
 	}
-	return volume, mount
+	return volume, mount, mount.MountPath + "/" + key
 }

@@ -45,15 +45,15 @@ func (c *osinOperator) handleOAuthConfig(configOverrides []byte) (*corev1.Config
 	emptyTemplates := configv1.OAuthTemplates{}
 	if oauthConfig.Spec.Templates != emptyTemplates {
 		templates = &osinv1.OAuthTemplates{
-			Login:             getFilenameFromSecretNameRef(oauthConfig.Spec.Templates.Login),
-			ProviderSelection: getFilenameFromSecretNameRef(oauthConfig.Spec.Templates.ProviderSelection),
-			Error:             getFilenameFromSecretNameRef(oauthConfig.Spec.Templates.Error),
+			Login:             "", // TODO fix
+			ProviderSelection: "", // TODO fix
+			Error:             "", // TODO fix
 		}
 	}
 
 	identityProviders := make([]osinv1.IdentityProvider, 0, len(oauthConfig.Spec.IdentityProviders))
-	for _, idp := range oauthConfig.Spec.IdentityProviders {
-		providerConfigBytes, err := convertProviderConfigToOsinBytes(&idp.ProviderConfig)
+	for i, idp := range oauthConfig.Spec.IdentityProviders {
+		providerConfigBytes, err := convertProviderConfigToOsinBytes(&idp.ProviderConfig, syncData, i)
 		if err != nil {
 			glog.Error(err)
 			continue

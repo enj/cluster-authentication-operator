@@ -11,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/openshift/library-go/pkg/operator/v1alpha1helpers"
 )
@@ -30,7 +31,46 @@ func defaultDeployment(syncData []idpSyncData, resourceVersions ...string) *apps
 	secretVolume := targetName + "-secret"
 	configMapVolume := targetName + "-configmap"
 
-	configPath := "/var/config"
+	configPath := "/var/config/system"
+
+	volumes := []corev1.Volume{
+		{
+			Name: secretVolume,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: targetName,
+				},
+			},
+		},
+		{
+			Name: configMapVolume,
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: targetName,
+					},
+				},
+			},
+		},
+	}
+
+	mounts := []corev1.VolumeMount{
+		{
+			Name:      secretVolume,
+			ReadOnly:  true,
+			MountPath: sessionPath,
+		},
+		{
+			Name:      configMapVolume,
+			ReadOnly:  true,
+			MountPath: configPath,
+		},
+	}
+
+	for _, d := range syncData {
+		volumes, mounts = toVolumesAndMounts(d.configMaps, volumes, mounts)
+		volumes, mounts = toVolumesAndMounts(d.secrets, volumes, mounts)
+	}
 
 	// force redeploy when any associated resource changes
 	// we use a hash to prevent this value from growing indefinitely
@@ -102,18 +142,7 @@ func defaultDeployment(syncData []idpSyncData, resourceVersions ...string) *apps
 									ContainerPort: 443,
 								},
 							},
-							VolumeMounts: []corev1.VolumeMount{
-								{
-									Name:      secretVolume,
-									ReadOnly:  true,
-									MountPath: sessionPath,
-								},
-								{
-									Name:      configMapVolume,
-									ReadOnly:  true,
-									MountPath: configPath,
-								},
-							},
+							VolumeMounts:             mounts,
 							ReadinessProbe:           defaultProbe(),
 							LivenessProbe:            livenessProbe(),
 							TerminationMessagePath:   "/dev/termination-log",
@@ -126,26 +155,7 @@ func defaultDeployment(syncData []idpSyncData, resourceVersions ...string) *apps
 							},
 						},
 					},
-					Volumes: []corev1.Volume{
-						{
-							Name: secretVolume,
-							VolumeSource: corev1.VolumeSource{
-								Secret: &corev1.SecretVolumeSource{
-									SecretName: targetName,
-								},
-							},
-						},
-						{
-							Name: configMapVolume,
-							VolumeSource: corev1.VolumeSource{
-								ConfigMap: &corev1.ConfigMapVolumeSource{
-									LocalObjectReference: corev1.LocalObjectReference{
-										Name: targetName,
-									},
-								},
-							},
-						},
-					},
+					Volumes: volumes,
 				},
 			},
 		},
@@ -173,4 +183,14 @@ func livenessProbe() *corev1.Probe {
 	probe := defaultProbe()
 	probe.InitialDelaySeconds = 30
 	return probe
+}
+
+func toVolumesAndMounts(data map[string]sourceData, volumes []corev1.Volume, mounts []corev1.VolumeMount) ([]corev1.Volume, []corev1.VolumeMount) {
+	// iterate in a define order
+	names := sets.StringKeySet(data).List()
+	for _, name := range names {
+		volumes = append(volumes, data[name].volume)
+		mounts = append(mounts, data[name].mount)
+	}
+	return volumes, mounts
 }
