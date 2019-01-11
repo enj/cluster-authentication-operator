@@ -23,7 +23,7 @@ func (c *osinOperator) getGeneration() int64 {
 	return deployment.Generation
 }
 
-func defaultDeployment(resourceVersions ...string) *appsv1.Deployment {
+func defaultDeployment(syncData []idpSyncData, resourceVersions ...string) *appsv1.Deployment {
 	replicas := int32(3) // TODO configurable?
 	gracePeriod := int64(30)
 

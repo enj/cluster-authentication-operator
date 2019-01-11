@@ -44,7 +44,7 @@ func (c *osinOperator) handleConfigSync(_ *configv1.OAuth) ([]idpSyncData, error
 					},
 				},
 			},
-			Templates: configv1.OAuthTemplates{}, // later
+			Templates: configv1.OAuthTemplates{}, // TODO fix
 		},
 	}
 
@@ -85,11 +85,11 @@ func (c *osinOperator) handleConfigSync(_ *configv1.OAuth) ([]idpSyncData, error
 	data := convertToData(config.Spec.IdentityProviders)
 	for _, d := range data {
 		for dest, src := range d.configMaps {
-			syncOrDie(c.resourceSyncer.SyncConfigMap, dest, src)
+			syncOrDie(c.resourceSyncer.SyncConfigMap, dest, src.src)
 			inUseConfigMapNames.Insert(dest)
 		}
 		for dest, src := range d.secrets {
-			syncOrDie(c.resourceSyncer.SyncSecret, dest, src)
+			syncOrDie(c.resourceSyncer.SyncSecret, dest, src.src)
 			inUseSecretNames.Insert(dest)
 		}
 	}
@@ -98,7 +98,8 @@ func (c *osinOperator) handleConfigSync(_ *configv1.OAuth) ([]idpSyncData, error
 	notInUseSecretNames := prefixSecretNames.Difference(inUseSecretNames)
 
 	// TODO maybe update resource syncer in lib-go to cleanup its map as needed
-	// it does not really matter, we are talking as worse case of a few unneeded strings
+	// it does not really matter, we are talking as worse case of
+	// a few unneeded strings and a few unnecessary deletes
 	for dest := range notInUseConfigMapNames {
 		syncOrDie(c.resourceSyncer.SyncConfigMap, dest, "")
 	}
@@ -111,9 +112,15 @@ func (c *osinOperator) handleConfigSync(_ *configv1.OAuth) ([]idpSyncData, error
 
 type idpSyncData struct {
 	// both maps are dest -> source
-	// all strings are metadata.name
-	configMaps map[string]string
-	secrets    map[string]string
+	// dest is metadata.name for resource in our deployment's namespace
+	configMaps map[string]sourceData
+	secrets    map[string]sourceData
+}
+
+type sourceData struct {
+	src    string
+	volume corev1.Volume
+	mount  corev1.VolumeMount
 }
 
 func convertToData(idps []configv1.IdentityProvider) []idpSyncData {
@@ -122,27 +129,52 @@ func convertToData(idps []configv1.IdentityProvider) []idpSyncData {
 		pc := idp.ProviderConfig
 		switch pc.Type {
 		case configv1.IdentityProviderTypeHTPasswd:
-			p := pc.HTPasswd // TODO could panic if invalid (applies to all)
+			p := pc.HTPasswd // TODO could panic if invalid (applies to all IDPs)
+
 			fileData := p.FileData.Name
-			d := idpSyncData{
-				secrets: map[string]string{
-					getName(i, fileData, configv1.HTPasswdDataKey): fileData,
+			dest := getName(i, fileData, configv1.HTPasswdDataKey)
+			volume, mount := secretVolume(i, dest, configv1.HTPasswdDataKey)
+
+			out = append(out,
+				idpSyncData{
+					secrets: map[string]sourceData{
+						dest: {
+							src:    fileData,
+							volume: volume,
+							mount:  mount,
+						},
+					},
 				},
-			}
-			out = append(out, d)
+			)
 		case configv1.IdentityProviderTypeOpenID:
 			p := pc.OpenID
-			clientSecret := p.ClientSecret.Name
+
 			ca := p.CA.Name
-			d := idpSyncData{
-				configMaps: map[string]string{
-					getName(i, ca, corev1.ServiceAccountRootCAKey): ca,
+			caDest := getName(i, ca, corev1.ServiceAccountRootCAKey)
+			caVolume, caMount := configMapVolume(i, caDest, corev1.ServiceAccountRootCAKey)
+
+			clientSecret := p.ClientSecret.Name
+			clientSecretDest := getName(i, clientSecret, configv1.ClientSecretKey)
+			clientSecretVolume, clientSecretMount := secretVolume(i, clientSecretDest, configv1.ClientSecretKey)
+
+			out = append(out,
+				idpSyncData{
+					configMaps: map[string]sourceData{
+						caDest: {
+							src:    ca,
+							volume: caVolume,
+							mount:  caMount,
+						},
+					},
+					secrets: map[string]sourceData{
+						clientSecretDest: {
+							src:    clientSecret,
+							volume: clientSecretVolume,
+							mount:  clientSecretMount,
+						},
+					},
 				},
-				secrets: map[string]string{
-					getName(i, clientSecret, configv1.ClientSecretKey): clientSecret,
-				},
-			}
-			out = append(out, d)
+			)
 		default:
 			panic("TODO")
 		}
@@ -156,7 +188,14 @@ func getName(i int, name, key string) string {
 	// TODO this scheme relies on each IDP struct not using the same key for more than one field
 	// I think we can do better, but here is a start
 	// A generic function that uses reflection may work too
+	// granted the key bit can be easily solved by the caller adding a postfix to the key if it is reused
 	return fmt.Sprintf("%s%d-%s-%s", userConfigPrefix, i, name, key)
+}
+
+const userConfigPathPrefix = "/var/config/user/idp/"
+
+func getPath(i int, resource, name string) string {
+	return fmt.Sprintf("%s%d/%s/%s", userConfigPathPrefix, i, resource, name)
 }
 
 func syncOrDie(syncFunc func(dest, src resourcesynccontroller.ResourceLocation) error, dest, src string) {
@@ -174,6 +213,54 @@ func syncOrDie(syncFunc func(dest, src resourcesynccontroller.ResourceLocation) 
 			Name:      src,
 		},
 	); err != nil {
-		panic(err) // implies incorrect informer wiring
+		panic(err) // implies incorrect informer wiring, we can never recover from this, just die
 	}
+}
+
+func secretVolume(i int, name, key string) (corev1.Volume, corev1.VolumeMount) {
+	volume := corev1.Volume{
+		Name: name,
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: name,
+				Items: []corev1.KeyToPath{
+					{
+						Key:  key,
+						Path: key,
+					},
+				},
+			},
+		},
+	}
+	mount := corev1.VolumeMount{
+		Name:      name,
+		ReadOnly:  true,
+		MountPath: getPath(i, "secret", name),
+	}
+	return volume, mount
+}
+
+func configMapVolume(i int, name, key string) (corev1.Volume, corev1.VolumeMount) {
+	volume := corev1.Volume{
+		Name: name,
+		VolumeSource: corev1.VolumeSource{
+			ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: name,
+				},
+				Items: []corev1.KeyToPath{
+					{
+						Key:  key,
+						Path: key,
+					},
+				},
+			},
+		},
+	}
+	mount := corev1.VolumeMount{
+		Name:      name,
+		ReadOnly:  true,
+		MountPath: getPath(i, "configmap", name),
+	}
+	return volume, mount
 }

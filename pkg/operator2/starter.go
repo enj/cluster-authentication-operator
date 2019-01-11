@@ -9,7 +9,9 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/cache"
 
+	operatorv1 "github.com/openshift/api/operator/v1"
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
 	configinformer "github.com/openshift/client-go/config/informers/externalversions"
 	routeclient "github.com/openshift/client-go/route/clientset/versioned"
@@ -88,8 +90,15 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 	)
 
 	resourceSyncer := resourcesynccontroller.NewResourceSyncController(
-		nil, // TODO fix
-		nil, // TODO fix
+		operatorClient{}, // TODO fix
+		map[string]informers.SharedInformerFactory{
+			targetName: informers.NewSharedInformerFactoryWithOptions(kubeClient, resync,
+				informers.WithNamespace(targetName), // TODO fix
+			),
+			userConfigNamespace: informers.NewSharedInformerFactoryWithOptions(kubeClient, resync,
+				informers.WithNamespace(userConfigNamespace),
+			),
+		},
 		kubeClient,
 		recorder{}, // TODO ctx.EventRecorder,
 	)
@@ -139,3 +148,22 @@ func (recorder) Event(reason, message string)                            {}
 func (recorder) Eventf(reason, messageFmt string, args ...interface{})   {}
 func (recorder) Warning(reason, message string)                          {}
 func (recorder) Warningf(reason, messageFmt string, args ...interface{}) {}
+
+// temp hack since I do not care about this right now
+type operatorClient struct{}
+
+func (operatorClient) Informer() cache.SharedIndexInformer {
+	return informer{}
+}
+func (operatorClient) Get() (*operatorv1.OperatorSpec, *operatorv1.StaticPodOperatorStatus, string, error) {
+	return &operatorv1.OperatorSpec{ManagementState: operatorv1.Managed}, nil, "", nil
+}
+func (operatorClient) UpdateStatus(string, *operatorv1.StaticPodOperatorStatus) (*operatorv1.StaticPodOperatorStatus, error) {
+	return nil, nil
+}
+
+type informer struct {
+	cache.SharedIndexInformer
+}
+
+func (informer) AddEventHandler(_ cache.ResourceEventHandler) {}
