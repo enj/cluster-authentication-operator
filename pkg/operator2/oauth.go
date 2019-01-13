@@ -187,7 +187,7 @@ func (c *osinOperator) handleOAuthConfig(configOverrides []byte) (*corev1.Config
 
 	cliConfigBytes, err := json.Marshal(cliConfig)
 	if err != nil {
-		return nil, nil, err
+		panic(err) // nothing in our config can fail to decode unless our scheme is broken, die
 	}
 
 	completeConfigBytes, err := resourcemerge.MergeProcessConfig(nil, cliConfigBytes, configOverrides)

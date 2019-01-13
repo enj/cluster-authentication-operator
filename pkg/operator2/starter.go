@@ -89,16 +89,18 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		osinv1alpha1.GroupVersion.WithResource("osins"),
 	)
 
+	resourceSyncerInformers := map[string]informers.SharedInformerFactory{
+		targetName: informers.NewSharedInformerFactoryWithOptions(kubeClient, resync,
+			informers.WithNamespace(targetName), // TODO fix
+		),
+		userConfigNamespace: informers.NewSharedInformerFactoryWithOptions(kubeClient, resync,
+			informers.WithNamespace(userConfigNamespace),
+		),
+	}
+
 	resourceSyncer := resourcesynccontroller.NewResourceSyncController(
 		operatorClient{}, // TODO fix
-		map[string]informers.SharedInformerFactory{
-			targetName: informers.NewSharedInformerFactoryWithOptions(kubeClient, resync,
-				informers.WithNamespace(targetName), // TODO fix
-			),
-			userConfigNamespace: informers.NewSharedInformerFactoryWithOptions(kubeClient, resync,
-				informers.WithNamespace(userConfigNamespace),
-			),
-		},
+		resourceSyncerInformers,
 		kubeClient,
 		recorder{}, // TODO ctx.EventRecorder,
 	)
@@ -124,6 +126,10 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 		routeInformersNamespaced,
 		configInformers,
 	} {
+		informer.Start(ctx.StopCh)
+	}
+
+	for _, informer := range resourceSyncerInformers {
 		informer.Start(ctx.StopCh)
 	}
 
@@ -153,17 +159,17 @@ func (recorder) Warningf(reason, messageFmt string, args ...interface{}) {}
 type operatorClient struct{}
 
 func (operatorClient) Informer() cache.SharedIndexInformer {
-	return informer{}
+	return fakeInformer{}
 }
 func (operatorClient) Get() (*operatorv1.OperatorSpec, *operatorv1.StaticPodOperatorStatus, string, error) {
-	return &operatorv1.OperatorSpec{ManagementState: operatorv1.Managed}, nil, "", nil
+	return &operatorv1.OperatorSpec{}, &operatorv1.StaticPodOperatorStatus{}, "", nil
 }
 func (operatorClient) UpdateStatus(string, *operatorv1.StaticPodOperatorStatus) (*operatorv1.StaticPodOperatorStatus, error) {
 	return nil, nil
 }
 
-type informer struct {
-	cache.SharedIndexInformer
+type fakeInformer struct {
+	cache.SharedIndexInformer // panics if anything other than AddEventHandler gets called
 }
 
-func (informer) AddEventHandler(_ cache.ResourceEventHandler) {}
+func (fakeInformer) AddEventHandler(_ cache.ResourceEventHandler) {}

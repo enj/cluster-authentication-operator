@@ -28,14 +28,13 @@ func defaultDeployment(syncData []idpSyncData, resourceVersions ...string) *apps
 	replicas := int32(3) // TODO configurable?
 	gracePeriod := int64(30)
 
-	secretVolume := targetName + "-secret"
-	configMapVolume := targetName + "-configmap"
-
-	configPath := "/var/config/system"
+	// TODO fix these names
+	sessionVolumeName := targetName + "-secret"
+	configVolumeName := targetName + "-configmap"
 
 	volumes := []corev1.Volume{
 		{
-			Name: secretVolume,
+			Name: sessionVolumeName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
 					SecretName: targetName,
@@ -43,7 +42,7 @@ func defaultDeployment(syncData []idpSyncData, resourceVersions ...string) *apps
 			},
 		},
 		{
-			Name: configMapVolume,
+			Name: configVolumeName,
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
 					LocalObjectReference: corev1.LocalObjectReference{
@@ -56,14 +55,14 @@ func defaultDeployment(syncData []idpSyncData, resourceVersions ...string) *apps
 
 	mounts := []corev1.VolumeMount{
 		{
-			Name:      secretVolume,
+			Name:      sessionVolumeName,
 			ReadOnly:  true,
 			MountPath: sessionPath,
 		},
 		{
-			Name:      configMapVolume,
+			Name:      configVolumeName,
 			ReadOnly:  true,
-			MountPath: configPath,
+			MountPath: systemConfigPath,
 		},
 	}
 
@@ -79,7 +78,7 @@ func defaultDeployment(syncData []idpSyncData, resourceVersions ...string) *apps
 	rvsHashStr := base64.RawURLEncoding.EncodeToString(rvsHash[:])
 
 	deployment := &appsv1.Deployment{
-		ObjectMeta: defaultMeta(),
+		ObjectMeta: defaultMeta(), // TODO add hash annotation here as well
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &replicas,
 			Selector: &metav1.LabelSelector{
@@ -133,7 +132,7 @@ func defaultDeployment(syncData []idpSyncData, resourceVersions ...string) *apps
 							Command: []string{
 								"hypershift",
 								"openshift-osinserver",
-								fmt.Sprintf("--config=%s/%s", configPath, configKey),
+								fmt.Sprintf("--config=%s/%s", systemConfigPath, configKey),
 							},
 							Ports: []corev1.ContainerPort{
 								{
@@ -186,7 +185,7 @@ func livenessProbe() *corev1.Probe {
 }
 
 func toVolumesAndMounts(data map[string]sourceData, volumes []corev1.Volume, mounts []corev1.VolumeMount) ([]corev1.Volume, []corev1.VolumeMount) {
-	// iterate in a define order
+	// iterate in a define order otherwise we will change the deployment's spec for no reason
 	names := sets.StringKeySet(data).List()
 	for _, name := range names {
 		volumes = append(volumes, data[name].volume)

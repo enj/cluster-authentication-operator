@@ -154,14 +154,15 @@ func convertToData(idps []configv1.IdentityProvider) []idpSyncData {
 	return out
 }
 
-const userConfigPrefix = "v4.0-config-user-idp-"
+const userConfigPrefix = "v4-0-config-user-idp-"
 
 func getName(i int, name, key string) string {
 	// TODO this scheme relies on each IDP struct not using the same key for more than one field
 	// I think we can do better, but here is a start
 	// A generic function that uses reflection may work too
 	// granted the key bit can be easily solved by the caller adding a postfix to the key if it is reused
-	return fmt.Sprintf("%s%d-%s-%s", userConfigPrefix, i, name, key)
+	newKey := strings.Replace(strings.ToLower(key), ".", "-", -1)
+	return fmt.Sprintf("%s%d-%s-%s", userConfigPrefix, i, name, newKey)
 }
 
 const userConfigPathPrefix = "/var/config/user/idp/"

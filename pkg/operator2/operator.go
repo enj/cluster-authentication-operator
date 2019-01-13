@@ -30,7 +30,9 @@ const (
 	metadataKey = "metadata"
 	configKey   = "config.yaml"
 	sessionKey  = "session"
-	sessionPath = "/var/session"
+
+	systemConfigPath = "/var/config/system"
+	sessionPath      = systemConfigPath + "/" + sessionKey
 
 	configName          = "cluster"
 	configNamespace     = "openshift-managed-config"
