@@ -119,10 +119,17 @@ func (c *ResourceSyncController) SyncSecret(destination, source ResourceLocation
 }
 
 func (c *ResourceSyncController) sync() error {
+
+
+	glog.Errorf("CC")
 	operatorSpec, _, _, err := c.operatorConfigClient.Get()
 	if err != nil {
 		return err
 	}
+
+
+
+	glog.Errorf("DD")
 
 	switch operatorSpec.ManagementState {
 	case operatorv1.Unmanaged:
@@ -131,6 +138,10 @@ func (c *ResourceSyncController) sync() error {
 		// TODO: Should we try to actively remove the resources created by this controller here?
 		return nil
 	}
+
+
+
+	glog.Errorf("EE")
 
 	c.syncRuleLock.RLock()
 	defer c.syncRuleLock.RUnlock()
@@ -164,6 +175,10 @@ func (c *ResourceSyncController) sync() error {
 		}
 	}
 
+
+
+	glog.Errorf("FF")
+
 	if len(errors) > 0 {
 		cond := operatorv1.OperatorCondition{
 			Type:    operatorStatusResourceSyncControllerFailing,
@@ -184,6 +199,9 @@ func (c *ResourceSyncController) sync() error {
 	if _, updateError := common.UpdateStatus(c.operatorConfigClient, common.UpdateConditionFn(cond)); updateError != nil {
 		return updateError
 	}
+
+	glog.Errorf("AA")
+
 	return nil
 }
 
@@ -193,18 +211,28 @@ func (c *ResourceSyncController) Run(workers int, stopCh <-chan struct{}) {
 
 	glog.Infof("Starting ResourceSyncController")
 	defer glog.Infof("Shutting down ResourceSyncController")
+
+	glog.Errorf("002")
 	if !cache.WaitForCacheSync(stopCh, c.preRunCachesSynced...) {
+	glog.Errorf("001")
 		return
 	}
 
+	glog.Errorf("003")
+
 	// doesn't matter what workers say, only start one.
 	go wait.Until(c.runWorker, time.Second, stopCh)
+
+
+	glog.Errorf("004")
 
 	<-stopCh
 }
 
 func (c *ResourceSyncController) runWorker() {
 	for c.processNextWorkItem() {
+
+	glog.Errorf("BB")
 	}
 }
 

@@ -74,7 +74,7 @@ func RunOperator(ctx *controllercmd.ControllerContext) error {
 
 	routeInformersNamespaced := routeinformer.NewSharedInformerFactoryWithOptions(routeClient, resync,
 		routeinformer.WithNamespace(targetName),
-		routeinformer.WithTweakListOptions(singleNameListOptions(targetName)),
+		routeinformer.WithTweakListOptions(singleNameListOptions(shortName)), // TODO fix
 	)
 
 	configInformers := configinformer.NewSharedInformerFactoryWithOptions(configClient, resync,

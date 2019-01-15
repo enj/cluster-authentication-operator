@@ -12,9 +12,9 @@ import (
 
 const stubMetadata = `
 {
-  "issuer": "%s",
-  "authorization_endpoint": "%s/oauth/authorize",
-  "token_endpoint": "%s/oauth/token",
+  "issuer": "https://%s",
+  "authorization_endpoint": "https://%s/oauth/authorize",
+  "token_endpoint": "https://%s/oauth/token",
   "scopes_supported": [
     "user:check-access",
     "user:full",

@@ -1,23 +1,35 @@
 package operator2
 
 import (
-	"encoding/json"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 
 	"github.com/golang/glog"
 
 	configv1 "github.com/openshift/api/config/v1"
 	kubecontrolplanev1 "github.com/openshift/api/kubecontrolplane/v1"
 	osinv1 "github.com/openshift/api/osin/v1"
+	routev1 "github.com/openshift/api/route/v1"
 	"github.com/openshift/library-go/pkg/crypto"
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 )
 
-func (c *authOperator) handleOAuthConfig(configOverrides []byte) (*corev1.ConfigMap, []idpSyncData, error) {
+var (
+	scheme2  = runtime.NewScheme()
+	codecs2  = serializer.NewCodecFactory(scheme2)
+	encoder2 = codecs2.LegacyCodec(kubecontrolplanev1.GroupVersion) // TODO I think there is a better way to do this
+)
+
+func init() {
+	utilruntime.Must(kubecontrolplanev1.Install(scheme2))
+}
+
+func (c *authOperator) handleOAuthConfig(route *routev1.Route, configOverrides []byte) (*corev1.ConfigMap, []idpSyncData, error) {
 	oauthConfig, err := c.oauth.Get(globalConfigName, metav1.GetOptions{})
 	if err != nil {
 		return nil, nil, err
@@ -156,14 +168,14 @@ func (c *authOperator) handleOAuthConfig(configOverrides []byte) (*corev1.Config
 		},
 		OAuthConfig: &osinv1.OAuthConfig{
 			// TODO at the very least this needs to be set to self signed loopback CA for the token request endpoint
-			MasterCA: nil,
+			MasterCA: new(string), // cannot be nil, causes panics
 			// TODO osin's code needs to be updated to properly use these values
 			// it should use MasterURL in almost all places except the token request endpoint
 			// which needs to direct the user to the real public URL (MasterPublicURL)
 			// that means we still need to get that value from the installer's config
 			// TODO ask installer team to make it easier to get that URL
-			MasterURL:                   "https://127.0.0.1:443",
-			MasterPublicURL:             "https://127.0.0.1:443",
+			MasterURL:                   "https://" + route.Spec.Host,
+			MasterPublicURL:             "https://" + route.Spec.Host,
 			AssetPublicURL:              "", // TODO do we need this?
 			AlwaysShowProviderSelection: false,
 			IdentityProviders:           identityProviders,
@@ -185,15 +197,16 @@ func (c *authOperator) handleOAuthConfig(configOverrides []byte) (*corev1.Config
 		},
 	}
 
-	cliConfigBytes, err := json.Marshal(cliConfig)
-	if err != nil {
-		panic(err) // nothing in our config can fail to decode unless our scheme is broken, die
-	}
+	cliConfigBytes := encodeOrDie2(cliConfig)
+
+	glog.Error(string(cliConfigBytes))
 
 	completeConfigBytes, err := resourcemerge.MergeProcessConfig(nil, cliConfigBytes, configOverrides)
 	if err != nil {
 		return nil, nil, err
 	}
+
+	glog.Error(string(completeConfigBytes))
 
 	return &corev1.ConfigMap{
 		ObjectMeta: defaultMeta(),
@@ -201,4 +214,12 @@ func (c *authOperator) handleOAuthConfig(configOverrides []byte) (*corev1.Config
 			configKey: string(completeConfigBytes),
 		},
 	}, syncData, nil
+}
+
+func encodeOrDie2(obj runtime.Object) []byte {
+	bytes, err := runtime.Encode(encoder2, obj)
+	if err != nil {
+		panic(err) // indicates static generated code is broken, unrecoverable
+	}
+	return bytes
 }

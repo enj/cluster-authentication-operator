@@ -26,9 +26,13 @@ import (
 
 const (
 	targetName = "openshift-osin" // TODO fix
+	shortName  = "o"              // TODO fix
 
 	configKey  = "config.yaml"
 	sessionKey = "session"
+
+	servingCertName = "serving-cert"
+	servingCertPath = "/var/run/secrets/serving-cert"
 
 	systemConfigPath = "/var/config/system"
 	sessionPath      = systemConfigPath + "/" + sessionKey
@@ -92,11 +96,12 @@ func NewAuthenticationOperator(
 
 	authOpConfigNameFilter := operator.FilterByNames(globalConfigName)
 	osinNameFilter := operator.FilterByNames(targetName)
+	shortNameFilter := operator.FilterByNames(shortName) // TODO fix
 	configNameFilter := operator.FilterByNames(globalConfigName)
 
 	return operator.New("AuthenticationOperator2", c,
 		operator.WithInformer(authOpConfigInformer, authOpConfigNameFilter),
-		operator.WithInformer(routeInformer, osinNameFilter),
+		operator.WithInformer(routeInformer, shortNameFilter),
 		operator.WithInformer(coreInformers.Services(), osinNameFilter),
 		operator.WithInformer(coreInformers.Secrets(), osinNameFilter),
 		// TODO need to watch config map in configNamespace
@@ -159,7 +164,7 @@ func (c *authOperator) handleSync(configOverrides []byte) error {
 		return err
 	}
 
-	expectedOAuthConfigMap, syncData, err := c.handleOAuthConfig(configOverrides)
+	expectedOAuthConfigMap, syncData, err := c.handleOAuthConfig(route, configOverrides)
 	if err != nil {
 		return err
 	}
@@ -201,6 +206,7 @@ func defaultMeta() metav1.ObjectMeta {
 		Name:            targetName,
 		Namespace:       targetName,
 		Labels:          defaultLabels(),
+		Annotations:     map[string]string{},
 		OwnerReferences: nil, // TODO
 	}
 }

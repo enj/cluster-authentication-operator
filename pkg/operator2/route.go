@@ -11,7 +11,7 @@ import (
 )
 
 func (c *authOperator) handleRoute() (*routev1.Route, error) {
-	route, err := c.route.Get(targetName, metav1.GetOptions{})
+	route, err := c.route.Get(shortName, metav1.GetOptions{})
 	if errors.IsNotFound(err) {
 		return c.route.Create(defaultRoute())
 	}
@@ -26,8 +26,11 @@ func (c *authOperator) handleRoute() (*routev1.Route, error) {
 }
 
 func defaultRoute() *routev1.Route {
+	m := defaultMeta()
+	m.Name = shortName
+	m.Annotations["kubernetes.io/tls-acme"] = "true" // TODO openshift-acme hack
 	return &routev1.Route{
-		ObjectMeta: defaultMeta(),
+		ObjectMeta: m,
 		Spec: routev1.RouteSpec{
 			To: routev1.RouteTargetReference{
 				Kind: "Service",
