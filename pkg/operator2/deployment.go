@@ -51,18 +51,31 @@ func defaultDeployment(syncData []idpSyncData, resourceVersions ...string) *apps
 				},
 			},
 		},
+		{
+			Name: servingCertName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: servingCertName,
+				},
+			},
+		},
 	}
 
 	mounts := []corev1.VolumeMount{
 		{
 			Name:      sessionVolumeName,
 			ReadOnly:  true,
-			MountPath: sessionPath,
+			MountPath: sessionMount,
 		},
 		{
 			Name:      configVolumeName,
 			ReadOnly:  true,
 			MountPath: systemConfigPath,
+		},
+		{
+			Name:      servingCertName,
+			ReadOnly:  true,
+			MountPath: servingCertMount,
 		},
 	}
 
@@ -138,7 +151,7 @@ func defaultDeployment(syncData []idpSyncData, resourceVersions ...string) *apps
 								{
 									Name:          "https",
 									Protocol:      corev1.ProtocolTCP,
-									ContainerPort: 443,
+									ContainerPort: servicePort,
 								},
 							},
 							VolumeMounts:             mounts,

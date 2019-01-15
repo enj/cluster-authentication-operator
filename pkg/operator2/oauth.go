@@ -1,12 +1,13 @@
 package operator2
 
 import (
-	"encoding/json"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 
 	"github.com/golang/glog"
 
@@ -18,58 +19,21 @@ import (
 	"github.com/openshift/library-go/pkg/operator/resource/resourcemerge"
 )
 
-func (c *authOperator) handleOAuthConfig(route *routev1.Route, cconfigOverrides []byte) (*corev1.ConfigMap, []idpSyncData, error) {
+// TODO this code dies once we get our own CLI config
+var (
+	kubeControlplaneScheme  = runtime.NewScheme()
+	kubeControlplaneCodecs  = serializer.NewCodecFactory(kubeControlplaneScheme)
+	kubeControlplaneEncoder = kubeControlplaneCodecs.LegacyCodec(kubecontrolplanev1.GroupVersion) // TODO I think there is a better way to do this
+)
+
+func init() {
+	utilruntime.Must(kubecontrolplanev1.Install(kubeControlplaneScheme))
+}
+
+func (c *authOperator) handleOAuthConfig(route *routev1.Route, configOverrides []byte) (*corev1.ConfigMap, []idpSyncData, error) {
 	oauthConfig, err := c.oauth.Get(globalConfigName, metav1.GetOptions{})
 	if err != nil {
 		return nil, nil, err
-	}
-
-	// TODO remove this hack
-	// pretend we have this one instead of the real input for now
-	// this has the bits we need to care about
-	oauthConfig.Spec.IdentityProviders = []configv1.IdentityProvider{
-		{
-			Name:            "happy",
-			UseAsChallenger: true,
-			UseAsLogin:      true,
-			MappingMethod:   configv1.MappingMethodClaim,
-			ProviderConfig: configv1.IdentityProviderConfig{
-				Type: configv1.IdentityProviderTypeHTPasswd,
-				HTPasswd: &configv1.HTPasswdIdentityProvider{
-					FileData: configv1.SecretNameReference{
-						Name: "fancy",
-					},
-				},
-			},
-		},
-		{
-			Name:            "new",
-			UseAsChallenger: true,
-			UseAsLogin:      true,
-			MappingMethod:   configv1.MappingMethodClaim,
-			ProviderConfig: configv1.IdentityProviderConfig{
-				Type: configv1.IdentityProviderTypeOpenID,
-				OpenID: &configv1.OpenIDIdentityProvider{
-					ClientID: "panda",
-					ClientSecret: configv1.SecretNameReference{
-						Name: "fancy",
-					},
-					CA: configv1.ConfigMapNameReference{
-						Name: "mah-ca",
-					},
-					URLs: configv1.OpenIDURLs{
-						Authorize: "https://example.com/a",
-						Token:     "https://example.com/b",
-						UserInfo:  "https://example.com/c",
-					},
-					Claims: configv1.OpenIDClaims{
-						PreferredUsername: []string{"preferred_username"},
-						Name:              []string{"name"},
-						Email:             []string{"email"},
-					},
-				},
-			},
-		},
 	}
 
 	// TODO maybe move the OAuth stuff up one level
@@ -114,9 +78,8 @@ func (c *authOperator) handleOAuthConfig(route *routev1.Route, cconfigOverrides 
 				UseAsLogin:      idp.UseAsLogin,
 				MappingMethod:   string(idp.MappingMethod),
 				Provider: runtime.RawExtension{
-					Raw:    providerConfigBytes,
-					Object: nil, // grant config is incorrectly in the IDP, but should be dropped in general
-				}, // TODO also need a series of config maps and secrets mounts based on this
+					Raw: providerConfigBytes,
+				},
 			},
 		)
 	}
@@ -133,9 +96,10 @@ func (c *authOperator) handleOAuthConfig(route *routev1.Route, cconfigOverrides 
 				ServingInfo: configv1.ServingInfo{
 					BindAddress: "0.0.0.0:443",
 					BindNetwork: "tcp4",
+					// we have valid certs provided by alfred so that we can use reencrypt routes
 					CertInfo: configv1.CertInfo{
-						CertFile: "", // needs to be signed by MasterCA from below
-						KeyFile:  "",
+						CertFile: servingCertPathCert,
+						KeyFile:  servingCertPathKey,
 					},
 					ClientCA:          "", // I think this can be left unset
 					NamedCertificates: nil,
@@ -156,8 +120,7 @@ func (c *authOperator) handleOAuthConfig(route *routev1.Route, cconfigOverrides 
 			},
 		},
 		OAuthConfig: &osinv1.OAuthConfig{
-			// TODO at the very least this needs to be set to self signed loopback CA for the token request endpoint
-			MasterCA: nil,
+			MasterCA: getMasterCA(), // assumed to be valid for the route
 			// TODO osin's code needs to be updated to properly use these values
 			// it should use MasterURL in almost all places except the token request endpoint
 			// which needs to direct the user to the real public URL (MasterPublicURL)
@@ -173,7 +136,7 @@ func (c *authOperator) handleOAuthConfig(route *routev1.Route, cconfigOverrides 
 				ServiceAccountMethod: osinv1.GrantHandlerPrompt,
 			},
 			SessionConfig: &osinv1.SessionConfig{
-				SessionSecretsFile:   fmt.Sprintf("%s/%s", sessionPath, sessionKey),
+				SessionSecretsFile:   sessionPath,
 				SessionMaxAgeSeconds: 5 * 60, // 5 minutes
 				SessionName:          "ssn",
 			},
@@ -186,10 +149,7 @@ func (c *authOperator) handleOAuthConfig(route *routev1.Route, cconfigOverrides 
 		},
 	}
 
-	cliConfigBytes, err := json.Marshal(cliConfig)
-	if err != nil {
-		panic(err) // nothing in our config can fail to decode unless our scheme is broken, die
-	}
+	cliConfigBytes := encodeOrDieKubeControlplane(cliConfig)
 
 	completeConfigBytes, err := resourcemerge.MergeProcessConfig(nil, cliConfigBytes, configOverrides)
 	if err != nil {
@@ -202,4 +162,17 @@ func (c *authOperator) handleOAuthConfig(route *routev1.Route, cconfigOverrides 
 			configKey: string(completeConfigBytes),
 		},
 	}, syncData, nil
+}
+
+func getMasterCA() *string {
+	ca := clusterCAPath // need local var to be able to take address of it
+	return &ca
+}
+
+func encodeOrDieKubeControlplane(obj runtime.Object) []byte {
+	bytes, err := runtime.Encode(kubeControlplaneEncoder, obj)
+	if err != nil {
+		panic(err) // indicates static generated code is broken, unrecoverable
+	}
+	return bytes
 }

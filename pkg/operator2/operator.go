@@ -3,11 +3,12 @@ package operator2
 import (
 	"github.com/golang/glog"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
-	appsv1 "k8s.io/client-go/kubernetes/typed/apps/v1"
-	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
+	appsv1client "k8s.io/client-go/kubernetes/typed/apps/v1"
+	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
@@ -27,16 +28,27 @@ import (
 const (
 	targetName = "openshift-osin" // TODO fix
 
-	configKey  = "config.yaml"
-	sessionKey = "session"
+	configKey = "config.yaml"
+
+	servingCertName     = "serving-cert"
+	servingCertMount    = "/var/run/secrets/serving-cert"
+	servingCertPathCert = servingCertMount + "/" + corev1.TLSCertKey
+	servingCertPathKey  = servingCertMount + "/" + corev1.TLSPrivateKeyKey
+
+	clusterCAPath = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 
 	systemConfigPath = "/var/config/system"
-	sessionPath      = systemConfigPath + "/" + sessionKey
+
+	sessionKey   = "session"
+	sessionMount = systemConfigPath + "/" + sessionKey
+	sessionPath  = sessionMount + "/" + sessionKey
 
 	globalConfigName = "cluster"
 
 	machineConfigNamespace = "openshift-config-managed"
 	userConfigNamespace    = "openshift-config"
+
+	servicePort = 6443
 )
 
 type authOperator struct {
@@ -46,10 +58,10 @@ type authOperator struct {
 
 	route routeclient.RouteInterface
 
-	services    corev1.ServicesGetter
-	secrets     corev1.SecretsGetter
-	configMaps  corev1.ConfigMapsGetter
-	deployments appsv1.DeploymentsGetter
+	services    corev1client.ServicesGetter
+	secrets     corev1client.SecretsGetter
+	configMaps  corev1client.ConfigMapsGetter
+	deployments appsv1client.DeploymentsGetter
 
 	authentication configv1client.AuthenticationInterface
 	oauth          configv1client.OAuthInterface
@@ -201,6 +213,7 @@ func defaultMeta() metav1.ObjectMeta {
 		Name:            targetName,
 		Namespace:       targetName,
 		Labels:          defaultLabels(),
+		Annotations:     map[string]string{},
 		OwnerReferences: nil, // TODO
 	}
 }
