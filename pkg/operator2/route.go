@@ -13,7 +13,7 @@ import (
 func (c *authOperator) handleRoute() (*routev1.Route, error) {
 	route, err := c.route.Get(targetName, metav1.GetOptions{})
 	if errors.IsNotFound(err) {
-		return c.route.Create(defaultRoute())
+		route, err = c.route.Create(defaultRoute())
 	}
 	if err != nil {
 		return nil, err
