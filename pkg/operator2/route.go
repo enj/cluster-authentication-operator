@@ -3,6 +3,8 @@ package operator2
 import (
 	"fmt"
 
+	"github.com/golang/glog"
+
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -25,7 +27,7 @@ func (c *authOperator) handleRoute() (*routev1.Route, error) {
 
 	if err := isValidRoute(route); err != nil {
 		// delete the route so that it is replaced with the proper one in next reconcile loop
-		c.route.Delete(route.Name, &metav1.DeleteOptions{})
+		glog.Infof("deleting invalid route %#v, deleteErr=%v", route, c.route.Delete(route.Name, &metav1.DeleteOptions{}))
 		return nil, err
 	}
 
