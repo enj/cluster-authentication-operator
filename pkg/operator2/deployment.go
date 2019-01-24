@@ -29,7 +29,6 @@ func (c *authOperator) getGeneration() int64 {
 
 func defaultDeployment(operatorConfig *authv1alpha1.AuthenticationOperatorConfig, syncData []idpSyncData, resourceVersions ...string) *appsv1.Deployment {
 	replicas := int32(3)
-	gracePeriod := int64(30)
 
 	var (
 		volumes []corev1.Volume
@@ -119,15 +118,11 @@ func defaultDeployment(operatorConfig *authv1alpha1.AuthenticationOperatorConfig
 					//		Effect:   corev1.TaintEffectNoSchedule,
 					//	},
 					//},
-					ServiceAccountName:            targetName,
-					RestartPolicy:                 corev1.RestartPolicyAlways,
-					SchedulerName:                 corev1.DefaultSchedulerName,
-					TerminationGracePeriodSeconds: &gracePeriod,
-					SecurityContext:               &corev1.PodSecurityContext{},
+					ServiceAccountName: targetName,
 					Containers: []corev1.Container{
 						{
 							Image:           v1alpha1helpers.GetImageEnv(),
-							ImagePullPolicy: corev1.PullPolicy("IfNotPresent"),
+							ImagePullPolicy: corev1.PullIfNotPresent,
 							Name:            targetName,
 							Command: []string{
 								"hypershift",
@@ -145,8 +140,7 @@ func defaultDeployment(operatorConfig *authv1alpha1.AuthenticationOperatorConfig
 							VolumeMounts:             mounts,
 							ReadinessProbe:           defaultProbe(),
 							LivenessProbe:            livenessProbe(),
-							TerminationMessagePath:   "/dev/termination-log",
-							TerminationMessagePolicy: corev1.TerminationMessagePolicy("File"),
+							TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 							//Resources: corev1.ResourceRequirements{
 							//	Requests: map[corev1.ResourceName]resource.Quantity{
 							//		corev1.ResourceCPU:    resource.MustParse("2G"),
