@@ -38,7 +38,7 @@ func WithInformerSynced(getter InformerGetter) Option {
 	})
 }
 
-func WithInformer(getter InformerGetter, filter ParentFilter) Option {
+func WithInformer(getter InformerGetter, filter ParentFilter, opts ...InformerOption) Option {
 	informer := getter.Informer() // immediately signal that we intend to use this informer in case it is lazily initialized
 	return toRunOpt(func(c *controller) {
 		informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -77,7 +77,14 @@ func WithInformer(getter InformerGetter, filter ParentFilter) Option {
 				}
 			},
 		})
-		WithInformerSynced(getter)(c)
+
+		if len(opts) == 0 {
+			opts = []InformerOption{WithSync}
+		}
+
+		for _, opt := range opts {
+			toOption(opt(), getter)(c)
+		}
 	})
 }
 
