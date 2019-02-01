@@ -78,12 +78,13 @@ func WithInformer(getter InformerGetter, filter ParentFilter, opts ...InformerOp
 			},
 		})
 
+		// default to a safe sync setting
 		if len(opts) == 0 {
-			opts = []InformerOption{WithSync}
+			opts = []InformerOption{WithSync()}
 		}
 
 		for _, opt := range opts {
-			toOption(opt(), getter)(c)
+			opt(getter, filter)(c)
 		}
 	})
 }

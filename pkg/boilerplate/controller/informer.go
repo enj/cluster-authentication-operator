@@ -1,29 +1,15 @@
 package controller
 
-type InformerOption func() informerOption
+type InformerOption func(InformerGetter, ParentFilter) Option
 
-type informerOption int
-
-const (
-	informerOptionSync informerOption = iota
-	informerOptionNoSync
-)
-
-func WithSync() informerOption {
-	return informerOptionSync
-}
-
-func WithoutSync() informerOption {
-	return informerOptionNoSync
-}
-
-func toOption(opt informerOption, getter InformerGetter) Option {
-	switch opt {
-	case informerOptionSync:
+func WithSync() InformerOption {
+	return func(getter InformerGetter, filter ParentFilter) Option {
 		return WithInformerSynced(getter)
-	case informerOptionNoSync:
+	}
+}
+
+func NoOption() InformerOption {
+	return func(InformerGetter, ParentFilter) Option {
 		return func(*controller) {} // do nothing
-	default:
-		panic(opt)
 	}
 }
