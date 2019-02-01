@@ -5,6 +5,6 @@ type die string
 func crash(i interface{}) {
 	mustDie, ok := i.(die)
 	if ok {
-		panic(mustDie)
+		panic(string(mustDie))
 	}
 }
