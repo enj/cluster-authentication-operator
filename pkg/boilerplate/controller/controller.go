@@ -80,6 +80,10 @@ func (c *controller) waitForCacheSyncWithTimeout() bool {
 
 func (c *controller) add(filter ParentFilter, object v1.Object) {
 	namespace, name := filter.Parent(object)
+	c.addKey(namespace, name)
+}
+
+func (c *controller) addKey(namespace, name string) {
 	qKey := queueKey{namespace: namespace, name: name}
 	c.queue.Add(qKey)
 }

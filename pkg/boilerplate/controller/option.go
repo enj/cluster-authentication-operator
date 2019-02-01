@@ -25,6 +25,12 @@ func WithMaxRetries(maxRetries int) Option {
 	}
 }
 
+func WithInitialEvent(namespace, name string) Option {
+	return toNaiveRunOpt(func(c *controller) {
+		c.addKey(namespace, name)
+	})
+}
+
 func WithRateLimiter(limiter workqueue.RateLimiter) Option {
 	return func(c *controller) {
 		c.queue = workqueue.NewNamedRateLimitingQueue(limiter, c.name)
@@ -90,13 +96,17 @@ func WithInformer(getter InformerGetter, filter ParentFilter, opts ...InformerOp
 }
 
 func toRunOpt(opt Option) Option {
-	return toOnceOpt(func(c *controller) {
+	return toOnceOpt(toNaiveRunOpt(opt))
+}
+
+func toNaiveRunOpt(opt Option) Option {
+	return func(c *controller) {
 		if c.run {
 			opt(c)
 			return
 		}
 		c.runOpts = append(c.runOpts, opt)
-	})
+	}
 }
 
 func toOnceOpt(opt Option) Option {
