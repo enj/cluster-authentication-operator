@@ -25,6 +25,18 @@ func WithInformer(getter controller.InformerGetter, filter controller.Filter, op
 	)
 }
 
+func WithInitialEvent() Option {
+	return toAppendOpt(
+		controller.WithInitialEvent(key, key), // use singleton key for initial event
+	)
+}
+
+func WithDefaultKey(defaultKeyFunc DefaultKeyFunc) Option {
+	return func(o *operator) {
+		o.sync.defaultKeyFunc = defaultKeyFunc
+	}
+}
+
 func toAppendOpt(opt controller.Option) Option {
 	return func(o *operator) {
 		o.opts = append(o.opts, opt)
