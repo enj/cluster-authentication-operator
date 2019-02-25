@@ -132,6 +132,9 @@ func NewAuthenticationOperator(
 	prefixFilter := getPrefixFilter()
 
 	return operator.New("AuthenticationOperator2", c,
+		operator.WithInitialEvent(),
+		operator.WithDefaultKey(&operatorv1.Authentication{}),
+
 		operator.WithInformer(routeInformer, targetNameFilter),
 		operator.WithInformer(coreInformers.Services(), targetNameFilter),
 		operator.WithInformer(kubeInformersNamespaced.Apps().V1().Deployments(), targetNameFilter),
@@ -153,6 +156,7 @@ func (c *authOperator) Key() (metav1.Object, error) {
 func (c *authOperator) Sync(obj metav1.Object) error {
 	operatorConfig := obj.(*operatorv1.Authentication)
 
+	// TODO treat empty string as the same as operatorv1.Managed
 	if operatorConfig.Spec.ManagementState != operatorv1.Managed {
 		return nil // TODO do something better for all states
 	}
@@ -249,6 +253,19 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	glog.V(4).Infof("current deployment: %#v", deployment)
 
 	return nil
+}
+
+func defaultAuthenticationFunc() metav1.Object {
+	return &operatorv1.Authentication{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: globalConfigName,
+		},
+		Spec: operatorv1.AuthenticationSpec{
+			OperatorSpec: operatorv1.OperatorSpec{
+				ManagementState: operatorv1.Managed,
+			},
+		},
+	}
 }
 
 func defaultLabels() map[string]string {

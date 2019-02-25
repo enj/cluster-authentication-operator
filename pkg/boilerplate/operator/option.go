@@ -1,6 +1,8 @@
 package operator
 
 import (
+	"reflect"
+
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/openshift/cluster-authentication-operator/pkg/boilerplate/controller"
@@ -23,6 +25,18 @@ func WithInformer(getter controller.InformerGetter, filter controller.Filter, op
 			DeleteFunc: filter.Delete,
 		}, opts...),
 	)
+}
+
+func WithInitialEvent() Option {
+	return toAppendOpt(
+		controller.WithInitialEvent(key, key), // use singleton key for initial event
+	)
+}
+
+func WithDefaultKey(key v1.Object) Option {
+	return func(o *operator) {
+		o.sync.key = reflect.ValueOf(key)
+	}
 }
 
 func toAppendOpt(opt controller.Option) Option {
