@@ -53,9 +53,9 @@ func (c *authOperator) handleOAuthConfig(
 	emptyTemplates := configv1.OAuthTemplates{}
 	if configTemplates := oauthConfig.Spec.Templates; configTemplates != emptyTemplates {
 		templates = &osinv1.OAuthTemplates{
-			Login:             syncData.AddTemplateSecret(configTemplates.Login, configv1.LoginTemplateKey),
-			ProviderSelection: syncData.AddTemplateSecret(configTemplates.ProviderSelection, configv1.ProviderSelectionTemplateKey),
-			Error:             syncData.AddTemplateSecret(configTemplates.Error, configv1.ErrorsTemplateKey),
+			Login:             syncData.AddTemplateSecret(configTemplates.Login, "login", configv1.LoginTemplateKey),
+			ProviderSelection: syncData.AddTemplateSecret(configTemplates.ProviderSelection, "provider-selection", configv1.ProviderSelectionTemplateKey),
+			Error:             syncData.AddTemplateSecret(configTemplates.Error, "error", configv1.ErrorsTemplateKey),
 		}
 	}
 
