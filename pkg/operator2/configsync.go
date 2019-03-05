@@ -170,7 +170,7 @@ func newConfigSyncData() configSyncData {
 // AddSecret initializes a sourceData object with proper data for a Secret
 // and adds it among the other secrets stored here
 // Returns the path for the Secret
-func (sd *configSyncData) AddIDPSecret(index int, secretRef configv1.SecretNameReference, field, key string) string {
+func (sd *configSyncData) addIDPSecret(index int, secretRef configv1.SecretNameReference, field, key string) string {
 	if len(secretRef.Name) == 0 {
 		return ""
 	}
@@ -184,7 +184,7 @@ func (sd *configSyncData) AddIDPSecret(index int, secretRef configv1.SecretNameR
 // AddConfigMap initializes a sourceData object with proper data for a ConfigMap
 // and adds it among the other configmaps stored here
 // Returns the path for the ConfigMap
-func (sd *configSyncData) AddIDPConfigMap(index int, configMapRef configv1.ConfigMapNameReference, field, key string) string {
+func (sd *configSyncData) addIDPConfigMap(index int, configMapRef configv1.ConfigMapNameReference, field, key string) string {
 	if len(configMapRef.Name) == 0 {
 		return ""
 	}
@@ -195,7 +195,7 @@ func (sd *configSyncData) AddIDPConfigMap(index int, configMapRef configv1.Confi
 	return data.path
 }
 
-func (sd *configSyncData) AddTemplateSecret(secretRef configv1.SecretNameReference, field, key string) string {
+func (sd *configSyncData) addTemplateSecret(secretRef configv1.SecretNameReference, field, key string) string {
 	if len(secretRef.Name) == 0 {
 		return ""
 	}
@@ -206,34 +206,20 @@ func (sd *configSyncData) AddTemplateSecret(secretRef configv1.SecretNameReferen
 	return data.path
 }
 
-const (
-	// idps that are synced have this prefix
-	userConfigPrefixIDP = userConfigPrefix + "idp-"
-
-	// templates that are synced have this prefix
-	userConfigPrefixTemplate = userConfigPrefix + "template-"
-
-	// root path for IDP data
-	userConfigPathPrefixIDP = userConfigPath + "/idp/"
-
-	// root path for template data
-	userConfigPathPrefixTemplate = userConfigPath + "/template/"
-)
-
 func getIDPName(i int, field string) string {
 	return fmt.Sprintf("%s%d-%s", userConfigPrefixIDP, i, field)
 }
 
 func getIDPPath(i int, resource, dest string) string {
-	return fmt.Sprintf("%s%d/%s/%s", userConfigPathPrefixIDP, i, resource, dest)
+	return fmt.Sprintf("%s/%d/%s/%s", userConfigPathPrefixIDP, i, resource, dest)
 }
 
 func getTemplateName(field string) string {
-	return fmt.Sprintf("%s%s", userConfigPrefixTemplate, field)
+	return userConfigPrefixTemplate + field
 }
 
 func getTemplatePath(resource, dest string) string {
-	return fmt.Sprintf("%s%s/%s", userConfigPathPrefixTemplate, resource, dest)
+	return fmt.Sprintf("%s/%s/%s", userConfigPathPrefixTemplate, resource, dest)
 }
 
 func syncOrDie(syncFunc func(dest, src resourcesynccontroller.ResourceLocation) error, dest, src string) {
