@@ -13,8 +13,6 @@ import (
 )
 
 func (c *authOperator) handleConfigSync(data *configSyncData) ([]string, error) {
-	// TODO handle OAuthTemplates
-
 	// TODO we probably need listers
 	configMapClient := c.configMaps.ConfigMaps(targetName)
 	secretClient := c.secrets.Secrets(targetName)
@@ -36,14 +34,14 @@ func (c *authOperator) handleConfigSync(data *configSyncData) ([]string, error) 
 	// TODO this has too much boilerplate
 
 	for _, cm := range configMaps.Items {
-		if strings.HasPrefix(cm.Name, userConfigPrefixIDP) {
+		if strings.HasPrefix(cm.Name, userConfigPrefix) {
 			prefixConfigMapNames.Insert(cm.Name)
 			resourceVersionsAll[cm.Name] = cm.GetResourceVersion()
 		}
 	}
 
 	for _, secret := range secrets.Items {
-		if strings.HasPrefix(secret.Name, userConfigPrefixIDP) {
+		if strings.HasPrefix(secret.Name, userConfigPrefix) {
 			prefixSecretNames.Insert(secret.Name)
 			resourceVersionsAll[secret.Name] = secret.GetResourceVersion()
 		}
@@ -79,7 +77,8 @@ func (c *authOperator) handleConfigSync(data *configSyncData) ([]string, error) 
 	}
 
 	// only get the resource versions of the elements in use
-	resourceVersionsInUse := []string{}
+	var resourceVersionsInUse []string
+
 	for name := range inUseConfigMapNames {
 		resourceVersionsInUse = append(resourceVersionsInUse, resourceVersionsAll[name])
 	}
