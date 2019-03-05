@@ -12,6 +12,16 @@ import (
 	osinv1 "github.com/openshift/api/osin/v1"
 )
 
+// field names are used to uniquely identify a secret or config map reference
+// within a given identity provider.  thus the same IDP cannot use the same field
+// more than once.  ex: if an idp had to CA fields, it would need to use something
+// like ca-1 and ca-2 as the field names to distinguish the two.  the simplest way
+// to create a field name is to take the JSON tag and convert it into a format that
+// is a valid name for a config map or secret.  ex: clientSecret is not valid as-is
+// because of the capital S thus it is converted to client-secret.  the final secret
+// name looks like v4-0-config-user-idp-0-client-secret and the final path looks
+// like /var/config/user/idp/0/secret/v4-0-config-user-idp-0-client-secret/clientSecret
+// note how the end-user has no control over the structure of either value.
 const (
 	caField = "ca"
 
