@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/client-go/transport"
 
 	configv1 "github.com/openshift/api/config/v1"
 	osinv1 "github.com/openshift/api/osin/v1"
@@ -184,7 +184,7 @@ func (c *authOperator) convertProviderConfigToIDPData(providerConfig *configv1.I
 			return nil, fmt.Errorf(missingProviderFmt, providerConfig.Type)
 		}
 
-		urls, err := c.discoverOpenIDURLs(openIDConfig.Issuer, openIDConfig.CA)
+		urls, err := c.discoverOpenIDURLs(openIDConfig.Issuer, corev1.ServiceAccountRootCAKey, openIDConfig.CA, openIDConfig.URLs)
 		if err != nil {
 			return nil, err
 		}
@@ -232,7 +232,16 @@ func (c *authOperator) convertProviderConfigToIDPData(providerConfig *configv1.I
 	return data, nil
 }
 
-func (c *authOperator) discoverOpenIDURLs(issuer string, ca configv1.ConfigMapNameReference) (*osinv1.OpenIDURLs, error) {
+func (c *authOperator) discoverOpenIDURLs(issuer, key string, ca configv1.ConfigMapNameReference, fallbackURLs configv1.OpenIDURLs) (*osinv1.OpenIDURLs, error) {
+	// TODO drop after 4.0beta3
+	if len(issuer) == 0 {
+		return &osinv1.OpenIDURLs{
+			Authorize: fallbackURLs.Authorize,
+			Token:     fallbackURLs.Token,
+			UserInfo:  fallbackURLs.UserInfo,
+		}, nil
+	}
+
 	issuer = strings.TrimRight(issuer, "/") // TODO make impossible via validation and remove
 
 	wellKnown := issuer + "/.well-known/openid-configuration"
@@ -241,7 +250,7 @@ func (c *authOperator) discoverOpenIDURLs(issuer string, ca configv1.ConfigMapNa
 		return nil, err
 	}
 
-	rt, err := transport.DebugWrappers(http.DefaultTransport), nil // TODO fix, use CA
+	rt, err := c.transportForCARef(ca, key)
 	if err != nil {
 		return nil, err
 	}
@@ -273,6 +282,24 @@ func (c *authOperator) discoverOpenIDURLs(issuer string, ca configv1.ConfigMapNa
 		Token:     metadata.TokenURL,
 		UserInfo:  metadata.UserInfoURL,
 	}, nil
+}
+
+func (c *authOperator) transportForCARef(ca configv1.ConfigMapNameReference, key string) (http.RoundTripper, error) {
+	if len(ca.Name) == 0 {
+		return transportFor(nil, nil, nil)
+	}
+	cm, err := c.configMaps.ConfigMaps(userConfigNamespace).Get(ca.Name, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+	caData := []byte(cm.Data[key])
+	if len(caData) == 0 {
+		caData = cm.BinaryData[key]
+	}
+	if len(caData) == 0 {
+		return nil, fmt.Errorf("config map %s/%s has no ca data at key %s", userConfigNamespace, ca.Name, key)
+	}
+	return transportFor(caData, nil, nil)
 }
 
 type openIDProviderJSON struct {
