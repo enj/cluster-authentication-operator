@@ -344,7 +344,7 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 
 	glog.V(4).Infof("current deployment: %#v", deployment)
 
-	ready, err := c.CheckReady(operatorConfig, authConfig, route, deployment.Annotations[deploymentVersionHashKey])
+	ready, err := c.checkReady(operatorConfig, authConfig, route, deployment.Annotations[deploymentVersionHashKey])
 	if err != nil {
 		return err
 	}
@@ -363,7 +363,7 @@ func (c *authOperator) handleSync(operatorConfig *operatorv1.Authentication) err
 	return nil
 }
 
-func (c *authOperator) CheckReady(
+func (c *authOperator) checkReady(
 	operatorConfig *operatorv1.Authentication,
 	authConfig *configv1.Authentication,
 	route *routev1.Route,
