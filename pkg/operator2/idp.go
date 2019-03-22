@@ -270,8 +270,8 @@ func (c *authOperator) discoverOpenIDURLs(issuer, key string, ca configv1.Config
 		return nil, fmt.Errorf("failed to decode metadata: %v", err)
 	}
 
-	if issuer != metadata.Issuer {
-		return nil, fmt.Errorf("expected issuer %s got %s", issuer, metadata.Issuer)
+	if actualIssuer := strings.TrimRight(metadata.Issuer, "/"); issuer != actualIssuer {
+		return nil, fmt.Errorf("expected issuer %s got %s", issuer, actualIssuer)
 	}
 
 	// TODO validate auth and token as required, user info as optional
