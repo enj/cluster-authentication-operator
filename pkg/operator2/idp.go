@@ -1,12 +1,16 @@
 package operator2
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/transport"
 
 	configv1 "github.com/openshift/api/config/v1"
 	osinv1 "github.com/openshift/api/osin/v1"
@@ -55,7 +59,7 @@ type idpData struct {
 	login     bool
 }
 
-func convertProviderConfigToIDPData(providerConfig *configv1.IdentityProviderConfig, syncData *configSyncData, i int) (*idpData, error) {
+func (c *authOperator) convertProviderConfigToIDPData(providerConfig *configv1.IdentityProviderConfig, syncData *configSyncData, i int) (*idpData, error) {
 	const missingProviderFmt string = "type %s was specified, but its configuration is missing"
 
 	data := &idpData{login: true}
@@ -180,17 +184,18 @@ func convertProviderConfigToIDPData(providerConfig *configv1.IdentityProviderCon
 			return nil, fmt.Errorf(missingProviderFmt, providerConfig.Type)
 		}
 
+		urls, err := c.discoverOpenIDURLs(openIDConfig.Issuer, openIDConfig.CA)
+		if err != nil {
+			return nil, err
+		}
+
 		data.provider = &osinv1.OpenIDIdentityProvider{
 			CA:                       syncData.addIDPConfigMap(i, openIDConfig.CA, caField, corev1.ServiceAccountRootCAKey),
 			ClientID:                 openIDConfig.ClientID,
 			ClientSecret:             createFileStringSource(syncData.addIDPSecret(i, openIDConfig.ClientSecret, clientSecretField, configv1.ClientSecretKey)),
 			ExtraScopes:              openIDConfig.ExtraScopes,
 			ExtraAuthorizeParameters: openIDConfig.ExtraAuthorizeParameters,
-			URLs: osinv1.OpenIDURLs{
-				Authorize: openIDConfig.URLs.Authorize,
-				Token:     openIDConfig.URLs.Token,
-				UserInfo:  openIDConfig.URLs.UserInfo,
-			},
+			URLs:                     *urls,
 			Claims: osinv1.OpenIDClaims{
 				// There is no longer a user-facing setting for ID as it is considered unsafe
 				ID:                []string{configv1.UserIDClaim},
@@ -225,6 +230,56 @@ func convertProviderConfigToIDPData(providerConfig *configv1.IdentityProviderCon
 	} // switch
 
 	return data, nil
+}
+
+func (c *authOperator) discoverOpenIDURLs(issuer string, ca configv1.ConfigMapNameReference) (*osinv1.OpenIDURLs, error) {
+	issuer = strings.TrimRight(issuer, "/") // TODO make impossible via validation and remove
+
+	wellKnown := issuer + "/.well-known/openid-configuration"
+	req, err := http.NewRequest(http.MethodGet, wellKnown, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	rt, err := transport.DebugWrappers(http.DefaultTransport), nil // TODO fix, use CA
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("couldn't get %v: unexpected response status %v", wellKnown, resp.StatusCode)
+	}
+
+	metadata := &openIDProviderJSON{}
+	if err := json.NewDecoder(resp.Body).Decode(metadata); err != nil {
+		return nil, fmt.Errorf("failed to decode metadata: %v", err)
+	}
+
+	if issuer != metadata.Issuer {
+		return nil, fmt.Errorf("expected issuer %s got %s", issuer, metadata.Issuer)
+	}
+
+	// TODO validate auth and token as required, user info as optional
+	// all must be valid URLs if present
+
+	return &osinv1.OpenIDURLs{
+		Authorize: metadata.AuthURL,
+		Token:     metadata.TokenURL,
+		UserInfo:  metadata.UserInfoURL,
+	}, nil
+}
+
+type openIDProviderJSON struct {
+	Issuer      string `json:"issuer"`
+	AuthURL     string `json:"authorization_endpoint"`
+	TokenURL    string `json:"token_endpoint"`
+	UserInfoURL string `json:"userinfo_endpoint"`
 }
 
 func createFileStringSource(filepath string) configv1.StringSource {
