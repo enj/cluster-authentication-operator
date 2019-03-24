@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -270,12 +271,27 @@ func (c *authOperator) discoverOpenIDURLs(issuer, key string, ca configv1.Config
 		return nil, fmt.Errorf("failed to decode metadata: %v", err)
 	}
 
-	if actualIssuer := strings.TrimRight(metadata.Issuer, "/"); issuer != actualIssuer {
-		return nil, fmt.Errorf("expected issuer %s got %s", issuer, actualIssuer)
+	for _, arg := range []struct {
+		rawurl   string
+		optional bool
+	}{
+		{
+			rawurl:   metadata.AuthURL,
+			optional: false,
+		},
+		{
+			rawurl:   metadata.TokenURL,
+			optional: false,
+		},
+		{
+			rawurl:   metadata.UserInfoURL,
+			optional: true,
+		},
+	} {
+		if !isValidURL(arg.rawurl, arg.optional) {
+			return nil, fmt.Errorf("invalid metadata from %s: url=%s optional=%v", wellKnown, arg.rawurl, arg.optional)
+		}
 	}
-
-	// TODO validate auth and token as required, user info as optional
-	// all must be valid URLs if present
 
 	return &osinv1.OpenIDURLs{
 		Authorize: metadata.AuthURL,
@@ -303,10 +319,22 @@ func (c *authOperator) transportForCARef(ca configv1.ConfigMapNameReference, key
 }
 
 type openIDProviderJSON struct {
-	Issuer      string `json:"issuer"`
 	AuthURL     string `json:"authorization_endpoint"`
 	TokenURL    string `json:"token_endpoint"`
 	UserInfoURL string `json:"userinfo_endpoint"`
+}
+
+func isValidURL(rawurl string, optional bool) bool {
+	if len(rawurl) == 0 {
+		return optional
+	}
+
+	u, err := url.Parse(rawurl)
+	if err != nil {
+		return false
+	}
+
+	return u.Scheme == "https" && len(u.Host) > 0 && len(u.Fragment) == 0
 }
 
 func createFileStringSource(filepath string) configv1.StringSource {
