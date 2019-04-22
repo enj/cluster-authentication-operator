@@ -11,6 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	"k8s.io/apimachinery/pkg/util/errors"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 
 	configv1 "github.com/openshift/api/config/v1"
@@ -196,7 +197,7 @@ func (c *authOperator) convertProviderConfigToIDPData(providerConfig *configv1.I
 			ClientSecret:             createFileStringSource(syncData.addIDPSecret(i, openIDConfig.ClientSecret, clientSecretField, configv1.ClientSecretKey)),
 			ExtraScopes:              openIDConfig.ExtraScopes,
 			ExtraAuthorizeParameters: openIDConfig.ExtraAuthorizeParameters,
-			URLs: *urls,
+			URLs:                     *urls,
 			Claims: osinv1.OpenIDClaims{
 				// There is no longer a user-facing setting for ID as it is considered unsafe
 				ID:                []string{configv1.UserIDClaim},
@@ -229,6 +230,16 @@ func (c *authOperator) convertProviderConfigToIDPData(providerConfig *configv1.I
 	default:
 		return nil, fmt.Errorf("the identity provider type '%s' is not supported", providerConfig.Type)
 	} // switch
+
+	idxMeta := syncData.idxMetas[i]
+	if err := errors.NewAggregate(idxMeta.errs); err != nil {
+		// clean up partial dests related to this IDP
+		for _, dest := range idxMeta.dests {
+			delete(syncData.idpConfigMaps, dest)
+			delete(syncData.idpSecrets, dest)
+		}
+		return nil, err
+	}
 
 	return data, nil
 }

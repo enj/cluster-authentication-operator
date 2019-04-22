@@ -96,6 +96,10 @@ type configSyncData struct {
 	idpConfigMaps map[string]sourceData
 	idpSecrets    map[string]sourceData
 	tplSecrets    map[string]sourceData
+
+	// IDP index -> associated errors and dests (keys in above maps)
+	// TODO template index
+	idxMetas map[int]idxData
 }
 
 type sourceData struct {
@@ -103,6 +107,11 @@ type sourceData struct {
 	path   string // the mount path that this source is mapped to
 	volume corev1.Volume
 	mount  corev1.VolumeMount
+}
+
+type idxData struct {
+	errs  []error
+	dests []string
 }
 
 // TODO: newSourceDataIDP* could be a generic function grouping the common pieces of code
@@ -156,14 +165,12 @@ func newSourceDataTemplateSecret(secretRef configv1.SecretNameReference, field, 
 }
 
 func newConfigSyncData() configSyncData {
-	idpConfigMaps := map[string]sourceData{}
-	idpSecrets := map[string]sourceData{}
-	tplSecrets := map[string]sourceData{}
-
 	return configSyncData{
-		idpConfigMaps: idpConfigMaps,
-		idpSecrets:    idpSecrets,
-		tplSecrets:    tplSecrets,
+		idpConfigMaps: map[string]sourceData{},
+		idpSecrets:    map[string]sourceData{},
+		tplSecrets:    map[string]sourceData{},
+
+		idxMetas: map[int]idxData{},
 	}
 }
 
@@ -177,6 +184,7 @@ func (sd *configSyncData) addIDPSecret(index int, secretRef configv1.SecretNameR
 
 	dest, data := newSourceDataIDPSecret(index, secretRef, field, key)
 	sd.idpSecrets[dest] = data
+	sd.addDest(index, dest)
 
 	return data.path
 }
@@ -191,6 +199,7 @@ func (sd *configSyncData) addIDPConfigMap(index int, configMapRef configv1.Confi
 
 	dest, data := newSourceDataIDPConfigMap(index, configMapRef, field, key)
 	sd.idpConfigMaps[dest] = data
+	sd.addDest(index, dest)
 
 	return data.path
 }
@@ -202,8 +211,21 @@ func (sd *configSyncData) addTemplateSecret(secretRef configv1.SecretNameReferen
 
 	dest, data := newSourceDataTemplateSecret(secretRef, field, key)
 	sd.tplSecrets[dest] = data
+	sd.addDest(-1, dest) // TODO fix or make const
 
 	return data.path
+}
+
+func (sd *configSyncData) addDest(index int, dest string) {
+	idxMeta := sd.idxMetas[index]
+	idxMeta.dests = append(idxMeta.dests, dest)
+	sd.idxMetas[index] = idxMeta
+}
+
+func (sd *configSyncData) addErr(index int, err error) {
+	idxMeta := sd.idxMetas[index]
+	idxMeta.errs = append(idxMeta.errs, err)
+	sd.idxMetas[index] = idxMeta
 }
 
 func getIDPName(i int, field string) string {

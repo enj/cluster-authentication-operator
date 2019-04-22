@@ -6,6 +6,13 @@ import (
 )
 
 func setFailingTrue(operatorConfig *operatorv1.Authentication, reason, message string) {
+	// combine all failures during a sync loop run
+	if existingCondition := v1helpers.FindOperatorCondition(operatorConfig.Status.Conditions,
+		operatorv1.OperatorStatusTypeFailing); existingCondition != nil && existingCondition.Status == operatorv1.ConditionTrue {
+		reason = existingCondition.Reason + "And" + reason
+		message = existingCondition.Message + ", " + message
+	}
+
 	v1helpers.SetOperatorCondition(&operatorConfig.Status.Conditions,
 		operatorv1.OperatorCondition{
 			Type:    operatorv1.OperatorStatusTypeFailing,
