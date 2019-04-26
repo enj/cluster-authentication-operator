@@ -196,7 +196,7 @@ func (c *authOperator) convertProviderConfigToIDPData(providerConfig *configv1.I
 			ClientSecret:             createFileStringSource(syncData.addIDPSecret(i, openIDConfig.ClientSecret, clientSecretField, configv1.ClientSecretKey)),
 			ExtraScopes:              openIDConfig.ExtraScopes,
 			ExtraAuthorizeParameters: openIDConfig.ExtraAuthorizeParameters,
-			URLs: *urls,
+			URLs:                     *urls,
 			Claims: osinv1.OpenIDClaims{
 				// There is no longer a user-facing setting for ID as it is considered unsafe
 				ID:                []string{configv1.UserIDClaim},
@@ -293,7 +293,7 @@ func (c *authOperator) discoverOpenIDURLs(issuer, key string, ca configv1.Config
 
 func (c *authOperator) transportForCARef(ca configv1.ConfigMapNameReference, key string) (http.RoundTripper, error) {
 	if len(ca.Name) == 0 {
-		return transportFor(nil, nil, nil)
+		return transportFor("", nil, nil, nil)
 	}
 	cm, err := c.configMaps.ConfigMaps(userConfigNamespace).Get(ca.Name, metav1.GetOptions{})
 	if err != nil {
@@ -306,7 +306,7 @@ func (c *authOperator) transportForCARef(ca configv1.ConfigMapNameReference, key
 	if len(caData) == 0 {
 		return nil, fmt.Errorf("config map %s/%s has no ca data at key %s", userConfigNamespace, ca.Name, key)
 	}
-	return transportFor(caData, nil, nil)
+	return transportFor("", caData, nil, nil)
 }
 
 type openIDProviderJSON struct {
