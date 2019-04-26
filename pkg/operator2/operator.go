@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -53,12 +54,12 @@ const (
 	operatorVersionEnvName = "OPERATOR_IMAGE_VERSION"
 	operandVersionEnvName  = "OPERAND_IMAGE_VERSION"
 	operandImageEnvName    = "IMAGE"
+	kasServicePortEnvName  = "KUBERNETES_SERVICE_PORT_HTTPS"
 
 	machineConfigNamespace = "openshift-config-managed"
 	userConfigNamespace    = "openshift-config"
 
-	kasEndpointName     = "kubernetes"
-	kasEndpointPortName = "https"
+	kasServiceAndEndpointName = "kubernetes"
 
 	rootCAFile = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 
@@ -127,7 +128,17 @@ var (
 	oauthserverVersion = os.Getenv(operandVersionEnvName)
 
 	operatorVersion = os.Getenv(operatorVersionEnvName)
+
+	kasServicePort int
 )
+
+func init() {
+	var err error
+	kasServicePort, err = strconv.Atoi(os.Getenv(kasServicePortEnvName))
+	if err != nil {
+		panic(err)
+	}
+}
 
 type authOperator struct {
 	authOperatorConfigClient OperatorClient
@@ -522,24 +533,33 @@ func (c *authOperator) checkWellknownEndpointsReady(authConfig *configv1.Authent
 }
 
 func (c *authOperator) getAPIServerIPs() ([]string, error) {
-	kasEndpoint, err := c.endpoints.Endpoints(corev1.NamespaceDefault).Get(kasEndpointName, metav1.GetOptions{})
+	kasService, err := c.services.Services(corev1.NamespaceDefault).Get(kasServiceAndEndpointName, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get kube api server service: %v", err)
+	}
+
+	targetPort, ok := getKASTargetPortFromService(kasService)
+	if !ok {
+		return nil, fmt.Errorf("unable to find kube api server service target port: %#v", kasService)
+	}
+
+	kasEndpoint, err := c.endpoints.Endpoints(corev1.NamespaceDefault).Get(kasServiceAndEndpointName, metav1.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get kube api server endpoints: %v", err)
 	}
 
 	for _, subset := range kasEndpoint.Subsets {
-		port, ok := getKasPortFromSubset(subset)
-		if !ok {
+		if !subsetHasKASTargetPort(subset, targetPort) {
 			continue
 		}
 
-		if len(subset.NotReadyAddresses) != 0 {
-			return nil, fmt.Errorf("kube api server endpoints has unready addresses: %#v", kasEndpoint)
+		if len(subset.NotReadyAddresses) != 0 || len(subset.Addresses) == 0 {
+			return nil, fmt.Errorf("kube api server endpoints is not ready: %#v", kasEndpoint)
 		}
 
 		ips := make([]string, 0, len(subset.Addresses))
 		for _, address := range subset.Addresses {
-			ips = append(ips, fmt.Sprintf("%s:%d", address.IP, port))
+			ips = append(ips, fmt.Sprintf("%s:%d", address.IP, targetPort))
 		}
 		return ips, nil
 	}
@@ -547,13 +567,22 @@ func (c *authOperator) getAPIServerIPs() ([]string, error) {
 	return nil, fmt.Errorf("unable to find kube api server endpoints port: %#v", kasEndpoint)
 }
 
-func getKasPortFromSubset(subset corev1.EndpointSubset) (int32, bool) {
-	for _, port := range subset.Ports {
-		if port.Name == kasEndpointPortName && port.Protocol == corev1.ProtocolTCP {
-			return port.Port, true
+func getKASTargetPortFromService(service *corev1.Service) (int, bool) {
+	for _, port := range service.Spec.Ports {
+		if targetPort := port.TargetPort.IntValue(); targetPort != 0 && port.Protocol == corev1.ProtocolTCP && int(port.Port) == kasServicePort {
+			return targetPort, true
 		}
 	}
 	return 0, false
+}
+
+func subsetHasKASTargetPort(subset corev1.EndpointSubset, targetPort int) bool {
+	for _, port := range subset.Ports {
+		if port.Protocol == corev1.ProtocolTCP && int(port.Port) == targetPort {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *authOperator) checkWellknownEndpointReady(apiIP string, rt http.RoundTripper, route *routev1.Route) (bool, string, error) {
