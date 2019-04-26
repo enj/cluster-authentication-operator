@@ -53,10 +53,12 @@ const (
 	operatorVersionEnvName = "OPERATOR_IMAGE_VERSION"
 	operandVersionEnvName  = "OPERAND_IMAGE_VERSION"
 	operandImageEnvName    = "IMAGE"
-	apiHostEnvName         = "KUBERNETES_SERVICE_HOST"
 
 	machineConfigNamespace = "openshift-config-managed"
 	userConfigNamespace    = "openshift-config"
+
+	kasEndpointName     = "kubernetes"
+	kasEndpointPortName = "https"
 
 	rootCAFile = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 
@@ -125,8 +127,6 @@ var (
 	oauthserverVersion = os.Getenv(operandVersionEnvName)
 
 	operatorVersion = os.Getenv(operatorVersionEnvName)
-
-	apiserverURL = os.Getenv(apiHostEnvName)
 )
 
 type authOperator struct {
@@ -140,6 +140,7 @@ type authOperator struct {
 	oauthClientClient oauthclient.OAuthClientInterface
 
 	services    corev1client.ServicesGetter
+	endpoints   corev1client.EndpointsGetter
 	secrets     corev1client.SecretsGetter
 	configMaps  corev1client.ConfigMapsGetter
 	deployments appsv1client.DeploymentsGetter
@@ -176,6 +177,7 @@ func NewAuthenticationOperator(
 		oauthClientClient: oauthClientClient.OAuthClients(),
 
 		services:    kubeClient.CoreV1(),
+		endpoints:   kubeClient.CoreV1(),
 		secrets:     kubeClient.CoreV1(),
 		configMaps:  kubeClient.CoreV1(),
 		deployments: kubeClient.AppsV1(),
@@ -403,7 +405,7 @@ func (c *authOperator) handleVersion(
 		return nil
 	}
 
-	wellknownReady, wellknownMsg, err := c.checkWellknownEndpointReady(authConfig, route)
+	wellknownReady, wellknownMsg, err := c.checkWellknownEndpointsReady(authConfig, route)
 	if err != nil {
 		return fmt.Errorf("unable to check the .well-known endpoint: %v", err)
 	}
@@ -487,7 +489,7 @@ func (c *authOperator) checkRouteHealthy(route *routev1.Route, routerSecret *cor
 	return true, "", nil
 }
 
-func (c *authOperator) checkWellknownEndpointReady(authConfig *configv1.Authentication, route *routev1.Route) (bool, string, error) {
+func (c *authOperator) checkWellknownEndpointsReady(authConfig *configv1.Authentication, route *routev1.Route) (bool, string, error) {
 	// TODO: don't perform this check when OAuthMetadata reference is set up,
 	// the code in configmap.go does not handle such cases yet
 	if len(authConfig.Spec.OAuthMetadata.Name) != 0 || authConfig.Spec.Type != configv1.AuthenticationTypeIntegratedOAuth {
@@ -504,7 +506,58 @@ func (c *authOperator) checkWellknownEndpointReady(authConfig *configv1.Authenti
 		return false, "", fmt.Errorf("failed to build transport for SA ca.crt: %v", err)
 	}
 
-	wellKnown := "https://" + apiserverURL + oauthMetadataAPIEndpoint
+	ips, err := c.getAPIServerIPs()
+	if err != nil {
+		return false, "", fmt.Errorf("failed to get API server IPs: %v", err)
+	}
+
+	for _, ip := range ips {
+		wellknownReady, wellknownMsg, err := c.checkWellknownEndpointReady(ip, rt, route)
+		if err != nil || !wellknownReady {
+			return wellknownReady, wellknownMsg, err
+		}
+	}
+
+	return true, "", nil
+}
+
+func (c *authOperator) getAPIServerIPs() ([]string, error) {
+	kasEndpoint, err := c.endpoints.Endpoints(corev1.NamespaceDefault).Get(kasEndpointName, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get kube api server endpoints: %v", err)
+	}
+
+	for _, subset := range kasEndpoint.Subsets {
+		port, ok := getKasPortFromSubset(subset)
+		if !ok {
+			continue
+		}
+
+		if len(subset.NotReadyAddresses) != 0 {
+			return nil, fmt.Errorf("kube api server endpoints has unready addresses: %#v", kasEndpoint)
+		}
+
+		ips := make([]string, 0, len(subset.Addresses))
+		for _, address := range subset.Addresses {
+			ips = append(ips, fmt.Sprintf("%s:%d", address.IP, port))
+		}
+		return ips, nil
+	}
+
+	return nil, fmt.Errorf("unable to find kube api server endpoints port: %#v", kasEndpoint)
+}
+
+func getKasPortFromSubset(subset corev1.EndpointSubset) (int32, bool) {
+	for _, port := range subset.Ports {
+		if port.Name == kasEndpointPortName && port.Protocol == corev1.ProtocolTCP {
+			return port.Port, true
+		}
+	}
+	return 0, false
+}
+
+func (c *authOperator) checkWellknownEndpointReady(apiIP string, rt http.RoundTripper, route *routev1.Route) (bool, string, error) {
+	wellKnown := "https://" + apiIP + oauthMetadataAPIEndpoint
 
 	req, err := http.NewRequest(http.MethodGet, wellKnown, nil)
 	if err != nil {
