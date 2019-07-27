@@ -76,6 +76,7 @@ func Test_authOperator_handleConfigSync(t *testing.T) {
 			objects: []runtime.Object{
 				testConfigSyncSecret("a"),
 				testConfigSyncConfigMap("b"),
+
 				testConfigSyncConfigMap(userConfigPrefix + "dest-a"),
 			},
 			idpConfigMaps: map[string]string{
@@ -125,6 +126,7 @@ func Test_authOperator_handleConfigSync(t *testing.T) {
 			objects: []runtime.Object{
 				testConfigSyncSecret("a"),
 				testConfigSyncConfigMap("b"),
+
 				testConfigSyncConfigMap(userConfigPrefix + "dest-a"),
 				testConfigSyncConfigMap(userConfigPrefix + "dest-b"),
 			},
@@ -175,8 +177,10 @@ func Test_authOperator_handleConfigSync(t *testing.T) {
 			objects: []runtime.Object{
 				testConfigSyncSecret("a"),
 				testConfigSyncConfigMap("b"),
+
 				testConfigSyncConfigMap(userConfigPrefix + "dest-a"),
 				testConfigSyncConfigMap(userConfigPrefix + "dest-b"),
+
 				testConfigSyncSecret(userConfigPrefix + "dest-c"),
 				testConfigSyncSecret(userConfigPrefix + "dest-d"),
 				testConfigSyncSecret(userConfigPrefix + "dest-e"),
@@ -220,6 +224,146 @@ func Test_authOperator_handleConfigSync(t *testing.T) {
 				{
 					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-f"},
 					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-f"},
+				},
+			},
+			wantErr: "",
+		},
+		{
+			name: "all config maps and secrets synced with old data",
+			objects: []runtime.Object{
+				testConfigSyncSecret("a"),
+				testConfigSyncConfigMap("b"),
+
+				testConfigSyncConfigMap(userConfigPrefix + "dest-a"),
+				testConfigSyncConfigMap(userConfigPrefix + "dest-b"),
+
+				testConfigSyncSecret(userConfigPrefix + "dest-c"),
+				testConfigSyncSecret(userConfigPrefix + "dest-d"),
+				testConfigSyncSecret(userConfigPrefix + "dest-e"),
+				testConfigSyncSecret(userConfigPrefix + "dest-f"),
+
+				testConfigSyncSecret(userConfigPrefix + "dest-g"),
+				testConfigSyncConfigMap(userConfigPrefix + "dest-h"),
+
+				testConfigSyncConfigMap(systemConfigPrefix + "dest-i"),
+				testConfigSyncConfigMap(systemConfigPrefix + "dest-j"),
+			},
+			idpConfigMaps: map[string]string{
+				userConfigPrefix + "dest-a": "src-a",
+				userConfigPrefix + "dest-b": "src-b",
+			},
+			idpSecrets: map[string]string{
+				userConfigPrefix + "dest-c": "src-c",
+				userConfigPrefix + "dest-d": "src-d",
+			},
+			tplSecrets: map[string]string{
+				userConfigPrefix + "dest-e": "src-e",
+				userConfigPrefix + "dest-f": "src-f",
+			},
+			wantConfigMaps: []location{
+				{
+					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-a"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-a"},
+				},
+				{
+					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-b"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-b"},
+				},
+				{
+					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-h"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "", Name: ""},
+				},
+			},
+			wantSecrets: []location{
+				{
+					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-c"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-c"},
+				},
+				{
+					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-d"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-d"},
+				},
+				{
+					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-e"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-e"},
+				},
+				{
+					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-f"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-f"},
+				},
+				{
+					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-g"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "", Name: ""},
+				},
+			},
+			wantErr: "",
+		},
+		{
+			name: "all config maps and secrets synced with old data and duplicate sources",
+			objects: []runtime.Object{
+				testConfigSyncSecret("panda"),
+				testConfigSyncConfigMap("bear"),
+
+				testConfigSyncConfigMap(userConfigPrefix + "dest-0"),
+				testConfigSyncConfigMap(userConfigPrefix + "dest-1"),
+
+				testConfigSyncSecret(userConfigPrefix + "dest-2"),
+				testConfigSyncSecret(userConfigPrefix + "dest-3"),
+				testConfigSyncSecret(userConfigPrefix + "dest-4"),
+				testConfigSyncSecret(userConfigPrefix + "dest-5"),
+
+				testConfigSyncSecret(userConfigPrefix + "dest-6"),
+				testConfigSyncConfigMap(userConfigPrefix + "dest-7"),
+
+				testConfigSyncConfigMap(systemConfigPrefix + "dest-8"),
+				testConfigSyncSecret(systemConfigPrefix + "dest-9"),
+			},
+			idpConfigMaps: map[string]string{
+				userConfigPrefix + "dest-0": "src-0",
+				userConfigPrefix + "dest-1": "src-0",
+			},
+			idpSecrets: map[string]string{
+				userConfigPrefix + "dest-2": "src-1",
+				userConfigPrefix + "dest-3": "src-1",
+			},
+			tplSecrets: map[string]string{
+				userConfigPrefix + "dest-4": "src-1",
+				userConfigPrefix + "dest-5": "src-1",
+			},
+			wantConfigMaps: []location{
+				{
+					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-0"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-0"},
+				},
+				{
+					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-1"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-0"},
+				},
+				{
+					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-7"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "", Name: ""},
+				},
+			},
+			wantSecrets: []location{
+				{
+					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-2"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-1"},
+				},
+				{
+					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-3"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-1"},
+				},
+				{
+					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-4"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-1"},
+				},
+				{
+					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-5"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: userConfigNamespace, Name: "src-1"},
+				},
+				{
+					destination: resourcesynccontroller.ResourceLocation{Namespace: targetNamespace, Name: userConfigPrefix + "dest-6"},
+					source:      resourcesynccontroller.ResourceLocation{Namespace: "", Name: ""},
 				},
 			},
 			wantErr: "",
