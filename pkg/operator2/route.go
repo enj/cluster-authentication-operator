@@ -8,10 +8,12 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog"
 
 	configv1 "github.com/openshift/api/config/v1"
 	routev1 "github.com/openshift/api/route/v1"
+	"github.com/openshift/library-go/pkg/crypto"
 )
 
 func (c *authOperator) handleRoute(ingress *configv1.Ingress) (*routev1.Route, *corev1.Secret, string, error) {
@@ -50,9 +52,8 @@ func (c *authOperator) handleRoute(ingress *configv1.Ingress) (*routev1.Route, *
 	if err != nil {
 		return nil, nil, "FailedRouterSecret", err
 	}
-	if len(routerSecret.Data) == 0 {
-		// be careful not to print the routerSecret even when it is empty
-		return nil, nil, "InvalidRouterSecret", fmt.Errorf("router secret %s/%s is empty", routerSecret.Namespace, routerSecret.Name)
+	if reason, err := validateRouterSecret(routerSecret, ingress); err != nil {
+		return nil, nil, reason, err
 	}
 
 	return route, routerSecret, "", nil
@@ -177,4 +178,53 @@ func isIngressAdmitted(ingress routev1.RouteIngress) bool {
 
 func ingressToHost(ingress *configv1.Ingress) string {
 	return targetName + "." + ingress.Spec.Domain
+}
+
+func validateRouterSecret(routerSecret *corev1.Secret, ingress *configv1.Ingress) (string, error) {
+	// be careful not to print the routerSecret even when it is empty
+
+	if len(routerSecret.Data) == 0 {
+		return "EmptyRouterSecret", fmt.Errorf("router secret is empty")
+	}
+
+	domain := ingress.Spec.Domain
+	if len(domain) == 0 {
+		return "NoIngressDomain", fmt.Errorf("ingress config has no domain")
+	}
+
+	pemCerts := routerSecret.Data[domain]
+	if len(pemCerts) == 0 {
+		return "NoIngressDataRouterSecret", fmt.Errorf("router secret has no data for ingress domain %s", domain)
+	}
+
+	certificates, err := crypto.CertsFromPEM(pemCerts)
+	if err != nil {
+		return "InvalidPEMRouterSecret", fmt.Errorf("router secret contains invalid PEM data: %v", err)
+	}
+
+	var hasCA, hasCert bool
+	for _, certificate := range certificates {
+		if certificate.IsCA {
+			hasCA = true
+			continue
+		}
+
+		names := sets.NewString(certificate.DNSNames...)
+		names.Insert(certificate.Subject.CommonName)
+		if !names.HasAny(ingressToHost(ingress), "*."+domain) {
+			continue
+		}
+
+		hasCert = true
+	}
+
+	if !hasCA {
+		return "NoCARouterSecret", fmt.Errorf("router secret contains no CA")
+	}
+
+	if !hasCert {
+		return "NoCertRouterSecret", fmt.Errorf("router secret has no cert for ingress domain %s", domain)
+	}
+
+	return "", nil
 }
