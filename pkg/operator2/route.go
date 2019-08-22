@@ -1,6 +1,7 @@
 package operator2
 
 import (
+	"bytes"
 	"crypto/x509"
 	"fmt"
 
@@ -214,9 +215,15 @@ func validateRouterSecret(routerSecret *corev1.Secret, ingress *configv1.Ingress
 			continue
 		}
 
+		// consider self-signed CAs as roots
+		if bytes.Equal(certificate.RawIssuer, certificate.RawSubject) {
+			opts.Roots.AddCert(certificate)
+			hasCA = true
+			continue
+		}
+
+		// consider all other CAs as intermediates
 		opts.Intermediates.AddCert(certificate)
-		opts.Roots.AddCert(certificate)
-		hasCA = true
 	}
 
 	for _, certificate := range certificates {
