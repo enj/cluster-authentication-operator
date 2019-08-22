@@ -8,7 +8,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog"
 
 	configv1 "github.com/openshift/api/config/v1"
@@ -202,20 +201,36 @@ func validateRouterSecret(routerSecret *corev1.Secret, ingress *configv1.Ingress
 		return "InvalidPEMRouterSecret", fmt.Errorf("router secret contains invalid PEM data: %v", err)
 	}
 
+	opts := x509.VerifyOptions{
+		DNSName:       ingressToHost(ingress),
+		Intermediates: x509.NewCertPool(),
+		Roots:         x509.NewCertPool(),
+	}
+
 	var hasCA, hasCert bool
+
 	for _, certificate := range certificates {
-		if certificate.IsCA {
-			hasCA = true
+		if !certificate.IsCA {
 			continue
 		}
 
-		names := sets.NewString(certificate.DNSNames...)
-		names.Insert(certificate.Subject.CommonName)
-		if !names.HasAny(ingressToHost(ingress), "*."+domain) {
+		opts.Intermediates.AddCert(certificate)
+		opts.Roots.AddCert(certificate)
+		hasCA = true
+	}
+
+	for _, certificate := range certificates {
+		if certificate.IsCA {
+			continue
+		}
+
+		if _, err := certificate.Verify(opts); err != nil {
+			klog.V(4).Infof("cert %s failed verification: %v", certificate.Subject.String(), err)
 			continue
 		}
 
 		hasCert = true
+		break
 	}
 
 	if !hasCA {
